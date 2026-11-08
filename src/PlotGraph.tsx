@@ -5,6 +5,7 @@ import { db, fresh, now, touch, type Scene, type PlotEdge, type PlotEdgeType } f
 import { autoLayout, edgePath, graphBounds, NODE_WIDTH, NODE_HEIGHT, type NodePosition } from './plotLayout';
 import { EDGE_TYPES, EMPTY_EDGE, createPlotEdge, updatePlotEdge, deletePlotEdge, type EdgeDraft } from './plotEdges';
 import { Button } from './UI';
+import {guardedProjectWrite} from './projectLease';
 
 type Props={
  projectId:string;
@@ -70,17 +71,21 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
  async function resetAll(){
   if(!confirm('직접 배치한 노드 위치를 모두 초기화하고 자동 정렬하시겠습니까? 진행 관계는 유지됩니다.'))return;
   try{
-   await db.plotLayouts.where('projectId').equals(projectId).delete();
+   await guardedProjectWrite(projectId,[db.plotLayouts],async()=>{
+    await db.plotLayouts.where('projectId').equals(projectId).delete();
+    await touch(projectId);
+   });
    setDragPositions({});
-   await touch(projectId);
   }catch(cause){setError(String(cause));}
  }
  async function resetOne(){
   if(!selectedSceneId)return;
   try{
-   await db.plotLayouts.where('sceneId').equals(selectedSceneId).delete();
+   await guardedProjectWrite(projectId,[db.plotLayouts],async()=>{
+    await db.plotLayouts.where('sceneId').equals(selectedSceneId).delete();
+    await touch(projectId);
+   });
    setDragPositions(prev=>{const next={...prev};delete next[selectedSceneId];return next;});
-   await touch(projectId);
   }catch(cause){setError(String(cause));}
  }
  function startDrag(event:React.PointerEvent<HTMLButtonElement>,id:string){
@@ -102,11 +107,11 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
   const state=drag.current;drag.current=null;
   if(!state?.moved)return;
   try{
-   await db.transaction('rw',db.plotLayouts,async()=>{
+   await guardedProjectWrite(projectId,[db.plotLayouts],async()=>{
     const old=await db.plotLayouts.where('sceneId').equals(state.id).first();
     await db.plotLayouts.put({...old,...fresh(projectId),id:old?.id||crypto.randomUUID(),sceneId:state.id,x:state.current.x,y:state.current.y,createdAt:old?.createdAt||now()});
+    await touch(projectId);
    });
-   await touch(projectId);
   }catch(cause){setError('노드 위치 저장 실패: '+String(cause));}
  }
  const shownEdges=edges.filter(edge=>positions[edge.fromSceneId]&&positions[edge.toSceneId]);
