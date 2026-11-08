@@ -144,10 +144,21 @@ export async function restorePackage(file:Blob){
  const contents=await parsePackage(file);
  // The whole import is transactional. If any project is invalid, no part is committed.
  const restored=await db.transaction('rw',db.tables,async()=>{
-  if(contents.research)await importResearchBackup(JSON.stringify(contents.research));
+  const researchMap=contents.research?(await importResearchBackup(JSON.stringify(contents.research))).idMap:{};
   const result:{id:string;title:string}[]=[];
   for(const item of contents.projects){
    const p=await restoreBackup(JSON.stringify(item.backup),false,item.assets);
+   // Reconnect pinned snapshots to their newly imported global theme/revision.
+   // Standalone project backups intentionally keep only the frozen, portable content.
+   if(contents.research){
+    const pins=await db.projectThemes.where('projectId').equals(p.id).toArray();
+    for(const pin of pins){
+     await db.projectThemes.update(pin.id,{
+      themeId:researchMap[pin.themeId]||pin.themeId,
+      revisionId:researchMap[pin.revisionId]||pin.revisionId
+     });
+    }
+   }
    result.push({id:p.id,title:p.title});
   }
   return result;
