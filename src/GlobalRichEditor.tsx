@@ -19,7 +19,11 @@ export default function GlobalRichEditor({documentId,content,onSave,internalNote
  const queue=useRef<Promise<unknown>>(Promise.resolve());
  const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const onSaveRef=useRef(onSave);
+ const noteOptionsRef=useRef(internalNotes);
+ const openLinkRef=useRef(onOpenLink);
  onSaveRef.current=onSave;
+ noteOptionsRef.current=internalNotes;
+ openLinkRef.current=onOpenLink;
 
  function flush():Promise<void>{
   if(timer.current){clearTimeout(timer.current);timer.current=null;}
@@ -48,7 +52,7 @@ export default function GlobalRichEditor({documentId,content,onSave,internalNote
     if(!link)return false;
     event.preventDefault();
     const id=link.getAttribute('href')?.replace('pw://knowledge/','');
-    if(id)onOpenLink?.(id);
+    if(id)openLinkRef.current?.(id);
     return true;
    }
   },
@@ -56,7 +60,7 @@ export default function GlobalRichEditor({documentId,content,onSave,internalNote
    pending.current=editor.getJSON();setStatus('저장 대기 중');
    if(timer.current)clearTimeout(timer.current);
    timer.current=setTimeout(()=>{void flush().catch(()=>undefined);},450);
-   if(!internalNotes.length){setShowSuggestions(false);return;}
+   if(!noteOptionsRef.current.length){setShowSuggestions(false);return;}
    const {$from}=editor.state.selection;
    const before=$from.parent.textBetween(0,$from.parentOffset);
    const match=before.match(/\[\[([^\]]{0,60})$/);
