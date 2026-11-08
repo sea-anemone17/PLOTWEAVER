@@ -19,7 +19,11 @@ export type PlotEdgeType='normal'|'conditional'|'choice'|'return'|'optional';
 export type PlotEdge = Base & {fromSceneId:string;toSceneId:string;type:PlotEdgeType;label:string;condition:string;note:string};
 export type PlotLayout = Base & {sceneId:string;x:number;y:number};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
-export type TrashedProject = {id:string;deletedAt:number;backup:Backup};
+export type TrashedProject = {id:string;deletedAt:number;backup:Backup;assets?:Asset[]};
+export type Visibility='gm'|'player'|'draft';
+export type Asset = Base & {name:string;mime:string;size:number;blob:Blob};
+export type Handout = Base & {title:string;kind:'text'|'file';visibility:Visibility;content:JSONContent;assetId:string|null};
+export type ExportProfile = Base & {name:string;includePrivate:boolean;includeLegacy:boolean;includeScenes:boolean;includeHandouts:boolean;includeGMResources:boolean;fontFamily:string;fontSize:number;pageMargin:number};
 
 // Global research data is intentionally independent of project-owned v0.1 idea cards.
 export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number;deletedAt?:number};
@@ -46,6 +50,7 @@ export class PlotDB extends Dexie {
  knowledgeNotes!:Table<KnowledgeNote,string>;knowledgeLinks!:Table<KnowledgeLink,string>;
  themes!:Table<Theme,string>;themeCards!:Table<ThemeCard,string>;themeRevisions!:Table<ThemeRevision,string>;
  projectThemes!:Table<ProjectTheme,string>;themeRelations!:Table<ThemeRelation,string>;
+ assets!:Table<Asset,string>;handouts!:Table<Handout,string>;exportProfiles!:Table<ExportProfile,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
@@ -75,6 +80,10 @@ export class PlotDB extends Dexie {
   themes:'id,updatedAt',themeCards:'id,themeId,kind,order',themeRevisions:'id,themeId,createdAt',
   projectThemes:'id,projectId,themeId,revisionId',themeRelations:'id,projectId,projectThemeId,targetId'
  });
+ this.version(6).stores({
+  assets:'id,projectId,updatedAt',handouts:'id,projectId,assetId,updatedAt',
+  exportProfiles:'id,projectId,updatedAt'
+ });
  }
 }
 export const db=new PlotDB();
@@ -98,8 +107,8 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
  });
  return p;
 }
-export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations'] as const;
-export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null};
+export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles'] as const;
+export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null;assetManifest?:{id:string;name:string;mime:string;size:number}[]};
 
 // Snapshot all project records in one transaction so a backup cannot mix different edit states.
 async function collectBackup(id:string):Promise<Backup>{
@@ -107,7 +116,8 @@ async function collectBackup(id:string):Promise<Backup>{
  if(!project)throw Error('프로젝트를 찾을 수 없습니다.');
  const data:Record<string,unknown[]>={};
  for(const name of collections)data[name]=await db.table(name).where('projectId').equals(id).toArray();
- return {format:'plotweaver',version:1,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null};
+ const assets=await db.assets.where('projectId').equals(id).toArray();
+ return {format:'plotweaver',version:1,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null,assetManifest:assets.map(({id,name,mime,size})=>({id,name,mime,size}))};
 }
 export async function makeBackup(id:string):Promise<Backup>{
  await flushProjectEdits(id);
@@ -119,6 +129,7 @@ export function downloadBlob(blob:Blob,name:string){
 }
 export async function downloadBackup(id:string){
  const b=await makeBackup(id);
+ if(b.assetManifest?.length)throw Error('첨부파일이 있는 프로젝트는 ZIP 전체 백업을 이용해 주세요. JSON만 저장하면 파일 원본이 포함되지 않습니다.');
  downloadBlob(new Blob([JSON.stringify(b,null,2)],{type:'application/json'}),b.project.title.replace(/[\\/:*?"<>|]/g,'_')+'.plotweaver.json');
 }
 export function validateBackup(text:string):Backup{
@@ -131,7 +142,7 @@ export function validateBackup(text:string):Backup{
  const ids=new Set<string>();
  let count=0;
  for(const name of collections){
-  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations'].includes(name)?[]:undefined);
+  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles'].includes(name)?[]:undefined);
   if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
   count+=rows.length;
   if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
@@ -148,9 +159,18 @@ export function validateBackup(text:string):Backup{
  }
  return b as Backup;
 }
-export async function restoreBackup(text:string,duplicate=false):Promise<Project>{
+export async function restoreBackup(text:string,duplicate=false,sourceAssets:Asset[]=[]):Promise<Project>{
  const b=validateBackup(text);
+ const assetManifest=b.assetManifest||[];
+ if(assetManifest.length!==sourceAssets.length)throw Error('첨부파일을 완전히 복원하려면 ZIP 백업이 필요합니다.');
+ const checkedAssets=new Map(sourceAssets.map(a=>[a.id,a]));
+ if(checkedAssets.size!==sourceAssets.length)throw Error('중복된 첨부파일 ID가 있습니다.');
+ for(const item of assetManifest){
+  const asset=checkedAssets.get(item.id);
+  if(!asset||asset.projectId!==b.project.id||asset.name!==item.name||asset.mime!==item.mime||asset.size!==item.size||asset.blob.size!==item.size)throw Error('첨부파일이 누락되었거나 백업 정보와 일치하지 않습니다.');
+ }
  const id=uid(),map=new Map<string,string>([[b.project.id,id]]);
+ for(const item of assetManifest)map.set(item.id,uid());
  for(const name of collections)for(const row of b.data[name]||[]){
   const oldId=(row as {id:string}).id;
   map.set(oldId,uid());
@@ -164,7 +184,7 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
  for(const name of collections){
   restored[name]=(b.data[name]||[]).map(row=>{
    const entry:Record<string,unknown>={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
-   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId','projectThemeId'])if(entry[key])entry[key]=mapId(entry[key]);
+   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId','projectThemeId','assetId'])if(entry[key])entry[key]=mapId(entry[key]);
    if(entry.nextIds!==undefined){
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
     entry.nextIds=entry.nextIds.map(mapId);
@@ -205,17 +225,24 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
   await db.projects.add(project);
   for(const name of collections)if(restored[name].length)await db.table(name).bulkAdd(restored[name]);
   await db.manuscripts.put({projectId:id,content:b.manuscript?.content||emptyDocument,updatedAt:now()});
+  if(sourceAssets.length)await db.assets.bulkAdd(sourceAssets.map(a=>({...a,id:mapId(a.id),projectId:id,createdAt:now(),updatedAt:now()})));
  });
  return project;
 }
-export async function duplicateProject(id:string){return restoreBackup(JSON.stringify(await makeBackup(id)),true);}
+export async function duplicateProject(id:string){
+ const backup=await makeBackup(id);
+ const assets=await db.assets.where('projectId').equals(id).toArray();
+ return restoreBackup(JSON.stringify(backup),true,assets);
+}
 
 // The trash entry and removal of live data are atomic; failed deletes never lose the snapshot.
 export async function deleteProject(id:string){
  await flushProjectEdits(id);
  await db.transaction('rw',db.tables,async()=>{
   const backup=await collectBackup(id);
-  await db.trash.put({id,deletedAt:now(),backup});
+  const assets=await db.assets.where('projectId').equals(id).toArray();
+  await db.trash.put({id,deletedAt:now(),backup,assets});
+  await db.assets.where('projectId').equals(id).delete();
   for(const name of collections)await db.table(name).where('projectId').equals(id).delete();
   await db.manuscripts.delete(id);
   await db.projects.delete(id);
@@ -224,7 +251,7 @@ export async function deleteProject(id:string){
 export async function restoreDeletedProject(id:string):Promise<Project>{
  const item=await db.trash.get(id);
  if(!item)throw Error('휴지통에서 프로젝트를 찾을 수 없습니다.');
- const project=await restoreBackup(JSON.stringify(item.backup));
+ const project=await restoreBackup(JSON.stringify(item.backup),false,item.assets||[]);
  await db.trash.delete(id);
  return project;
 }
