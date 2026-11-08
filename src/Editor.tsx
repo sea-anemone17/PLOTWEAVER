@@ -20,6 +20,7 @@ import { createPlotEdge, EDGE_TYPES, deletePlotEdge } from './plotEdges';
 import type { PlotEdgeType } from './data';
 import { flushProjectEdits, registerEditorFlusher, trackEditorWrite } from './saveBarrier';
 import {persistManuscript,preserveEmergencyDraft} from './recovery';
+import {guardedProjectWrite} from './projectLease';
 import { profilePreset, validateExportProfile } from './exportProfiles';
 import type { ExportProfile } from './data';
 
@@ -241,12 +242,17 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   if(!sceneId||!pick)return;
   if(links.some(l=>l.resourceId===pick&&l.resourceKind===kind))return;
   try{
-   await db.sceneLinks.add({...fresh(projectId),sceneId,resourceId:pick,resourceKind:kind,role:''});
-   await touch(projectId);setPick('');
+   await guardedProjectWrite(projectId,[db.sceneLinks],async()=>{
+    await db.sceneLinks.add({...fresh(projectId),sceneId,resourceId:pick,resourceKind:kind,role:''});
+    await touch(projectId);
+   });
+   setPick('');
   }catch(e){alert('자료 연결 실패: '+String(e));}
  }
  async function removeResource(id:string){
-  try{await db.sceneLinks.delete(id);await touch(projectId);}
+  try{await guardedProjectWrite(projectId,[db.sceneLinks],async()=>{
+   await db.sceneLinks.delete(id);await touch(projectId);
+  });}
   catch(e){alert('자료 연결 해제 실패: '+String(e));}
  }
  function updateStructuredFields(fields:Record<string,string>){
