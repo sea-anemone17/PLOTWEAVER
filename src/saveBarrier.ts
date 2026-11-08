@@ -1,10 +1,11 @@
 /**
  * Coordinate asynchronous editor writes with backup, deletion and export.
- * A pending debounced edit must be persisted before a snapshot is created.
+ * Multiple scene editors can have outstanding writes during navigation.
  */
 type Flusher=()=>Promise<void>;
 const flushers=new Map<string,Flusher>();
-const writes=new Map<string,Promise<unknown>>();
+const writes=new Map<string,Set<Promise<unknown>>>();
+const failed=new Set<string>();
 
 export function registerEditorFlusher(projectId:string,fn:Flusher):()=>void{
  flushers.set(projectId,fn);
@@ -12,14 +13,21 @@ export function registerEditorFlusher(projectId:string,fn:Flusher):()=>void{
 }
 
 export function trackEditorWrite(projectId:string,write:Promise<unknown>){
- writes.set(projectId,write);
- const clear=()=>{if(writes.get(projectId)===write)writes.delete(projectId);};
- void write.then(clear,clear);
+ let group=writes.get(projectId);
+ if(!group){group=new Set();writes.set(projectId,group);}
+ group.add(write);
+ const cleanup=()=>{
+  const active=writes.get(projectId);
+  active?.delete(write);
+  if(active?.size===0)writes.delete(projectId);
+ };
+ void write.then(()=>{failed.delete(projectId);cleanup();},()=>{failed.add(projectId);cleanup();});
 }
 
 export async function flushProjectEdits(projectId:string){
  const flush=flushers.get(projectId);
  if(flush)await flush();
- const write=writes.get(projectId);
- if(write)await write;
+ const active=[...(writes.get(projectId)||[])];
+ if(active.length)await Promise.all(active);
+ if(failed.has(projectId))throw Error('원고의 미저장 변경 사항이 있어 백업 또는 출력을 진행할 수 없습니다.');
 }
