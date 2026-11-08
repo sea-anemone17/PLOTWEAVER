@@ -5,6 +5,7 @@ import {db,now,type ThemeRelation} from './data';
 import {addThemeRelation,switchPinnedRevision} from './researchData';
 import {Button,Empty,Header} from './UI';
 import ResearchTextField from './ResearchTextField';
+import {guardedProjectWrite} from './projectLease';
 
 type Props={projectId:string;onOpenGlobalThemes:()=>void};
 const TARGET_TYPES:{value:ThemeRelation['targetKind'];label:string}[]=[
@@ -57,7 +58,7 @@ export default function ProjectThemes({projectId,onOpenGlobalThemes}:Props){
     <ResearchTextField key={selected.id+'notes'} id={selected.id+'notes'} saveScope={projectId} rows={6}
      label="이 프로젝트에서의 해석·활용 메모" value={selected.notes}
      placeholder="작품의 갈등·선택·결말을 통해 이 명제를 어떻게 다룰까요?"
-     onSave={notes=>db.projectThemes.update(selected.id,{notes,updatedAt:now()})}/>
+     onSave={notes=>guardedProjectWrite(projectId,[db.projectThemes],async()=>{await db.projectThemes.update(selected.id,{notes,updatedAt:now()});})}/>
     <div className="research-fields"><label>고정 개정본 전환
      <select aria-label="고정된 개정본 바꾸기" value={selected.revisionId} onChange={e=>{
       const id=e.target.value;
