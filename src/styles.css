@@ -34,3 +34,23 @@
 .document-page .trpg-block[data-trpg-kind="branch"]::before{content:'선택·분기'}
 .document-page .trpg-block[data-trpg-kind="ref"]::before{content:'자료 참조'}
 .document-page .trpg-block p:last-child{margin-bottom:0}
+
+/* Scene-specific writing and contextual references */
+.scene-manuscript-picker{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin:0 0 18px}
+.scene-manuscript-picker .field{min-width:min(100%,320px);margin:0}
+.scene-manuscript-picker .muted{padding-bottom:8px}
+.context-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:13px 0 16px}
+.context-tabs button{border:1px solid var(--line,#dce0e6);border-radius:6px;background:transparent;color:inherit;padding:9px 2px;font:inherit;font-size:12px;cursor:pointer}
+.context-tabs button.active{background:var(--surface-2,#e9edf5);font-weight:700}
+.context-section{display:flex;flex-direction:column;gap:12px;margin:12px 0}
+.context-section h4{font-size:14px;margin:0}
+.context-section p{font-size:13px;line-height:1.7;margin:0;overflow-wrap:anywhere}
+.context-section p strong{display:block;margin-bottom:3px}
+.context-section select{width:100%;min-width:0;padding:9px;border:1px solid var(--line,#dce0e6);border-radius:6px;background:var(--surface,#fff);color:inherit}
+.context-section button.tool{align-self:start;max-width:100%}
+.context-link{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:9px;border:1px solid var(--line,#dce0e6);border-radius:6px}
+.context-link span{min-width:0;overflow-wrap:anywhere}
+.context-link button{border:0;background:none;color:inherit;cursor:pointer;text-decoration:underline;font-size:12px}
+.context-outline{border-top:1px solid var(--line,#dce0e6);padding-top:14px;margin-top:22px}
+.context-outline summary{cursor:pointer;font-size:13px;font-weight:700;margin-bottom:10px}
+@media(max-width:900px){.scene-manuscript-picker{align-items:start;flex-direction:column;gap:6px}.scene-manuscript-picker .field{width:100%;min-width:0}}
