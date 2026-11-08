@@ -74,6 +74,7 @@ export async function addThemeCard(themeId:string,kind:ThemeCardKind='reason'){
 }
 export async function saveThemeRevision(themeId:string,label:string){
  if(!label.trim())throw Error('개정본 이름을 입력해 주세요.');
+ await flushProjectEdits('__global__');
  return db.transaction('rw',db.themes,db.themeCards,db.themeRevisions,async()=>{
   const theme=await db.themes.get(themeId);
   if(!theme||theme.deletedAt)throw Error('주제의식을 찾을 수 없습니다.');
