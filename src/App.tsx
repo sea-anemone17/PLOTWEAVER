@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArrowLeft, ArrowRight, BookOpenText, ChevronLeft, CircleHelp, Download, FilePenLine, FolderOpen, Home, Layers3, LayoutDashboard, Lightbulb, Menu, Network, Plus, Settings2, Sparkles, Upload, X } from 'lucide-react';
 import Workspace, { type Section } from './Workspace';
-import { db, createProject, restoreBackup, duplicateProject, deleteProject, downloadBackup, DIFFICULTIES, type Project } from './data';
+import { db, createProject, restoreBackup, duplicateProject, deleteProject, downloadBackup, restoreDeletedProject, DIFFICULTIES, type Project } from './data';
 import { Button, Pill } from './UI';
 
 const nav:{key:Section;title:string;icon:typeof Home;hint:string}[]=[
@@ -40,6 +40,7 @@ function Wizard({onCreate,onCancel}:{onCreate:(p:Project)=>void;onCancel:()=>voi
 }
 export default function App(){
  const projects=useLiveQuery(()=>db.projects.orderBy('updatedAt').reverse().toArray(),[],[]);
+ const trashed=useLiveQuery(()=>db.trash.orderBy('deletedAt').reverse().toArray(),[],[]);
  const [projectId,setProjectId]=useState(()=>localStorage.getItem('plotweaver.active')||'');
  const [section,setSection]=useState<Section>('dashboard');
  const [wizard,setWizard]=useState(false);
@@ -63,9 +64,13 @@ export default function App(){
    <section className="projects-section"><div className="section-caption"><h2>내 프로젝트</h2><span>{projects.length}개 · 이 기기에 저장됨</span></div>
     {projects.length?<div className="project-grid">{projects.map(p=><article className="project-card" key={p.id}>
      <div className="project-deco">✳</div><Pill>{p.kind}</Pill><h3>{p.title}</h3><p>{p.stage}</p><div className="project-bottom"><small>{new Date(p.updatedAt).toLocaleDateString('ko-KR')} 수정</small><button className="open-project" onClick={()=>openProject(p.id)}>열기 <ArrowRight size={17}/></button></div>
-     <div className="project-tools"><button onClick={()=>void downloadBackup(p.id)} title="JSON 백업"><Download size={16}/></button><button title="프로젝트 복제" onClick={()=>void duplicateProject(p.id).then(copy=>openProject(copy.id))}><Layers3 size={16}/></button><button title="삭제" onClick={()=>{if(confirm('이 프로젝트를 영구 삭제하시겠습니까?'))void deleteProject(p.id);}}><X size={16}/></button></div>
+     <div className="project-tools"><button onClick={()=>void downloadBackup(p.id)} title="JSON 백업"><Download size={16}/></button><button title="프로젝트 복제" onClick={()=>void duplicateProject(p.id).then(copy=>openProject(copy.id))}><Layers3 size={16}/></button><button title="삭제" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 나중에 복원할 수 있습니다.'))void deleteProject(p.id).catch(e=>alert('삭제 실패: '+String(e)));}}><X size={16}/></button></div>
     </article>)}</div>:<div className="empty-home"><div className="empty-home-icon"><BookOpenText size={36}/></div><h3>아직 프로젝트가 없습니다</h3><p>머릿속의 이야기를 이곳에서 시작해 보세요.</p><Button onClick={()=>setWizard(true)}>첫 프로젝트 시작하기 <ArrowRight size={16}/></Button></div>}
-   </section><p className="privacy-caption">🔒 작업 내용은 별도 서버로 전송되지 않고, 이 브라우저에 저장됩니다. 중요한 원고는 JSON으로 정기 백업하세요.</p>
+   </section>
+   {trashed.length>0&&<section className="projects-section" aria-label="휴지통"><div className="section-caption"><h2>휴지통</h2><span>{trashed.length}개 · 이 기기에 저장됨</span></div>
+    <div className="project-grid">{trashed.map(t=><article className="project-card" key={t.id}><Pill>삭제된 프로젝트</Pill><h3>{t.backup.project.title}</h3><p>{new Date(t.deletedAt).toLocaleString('ko-KR')} 이동</p><Button variant="soft" onClick={()=>void restoreDeletedProject(t.id).then(p=>openProject(p.id)).catch(e=>alert('복원 실패: '+String(e)))}>프로젝트 복원</Button></article>)}</div>
+   </section>}
+   <p className="privacy-caption">🔒 작업 내용은 별도 서버로 전송되지 않고, 이 브라우저에 저장됩니다. 중요한 원고는 JSON으로 정기 백업하세요.</p>
   </main>}
  </div>;
  return <div className="app-shell">
