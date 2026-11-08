@@ -1,4 +1,5 @@
 import 'fake-indexeddb/auto';
+import Dexie from 'dexie';
 import { beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { db, createProject, fresh, makeBackup, restoreBackup, type Scene } from '../src/data';
 import { createPlotEdge, updatePlotEdge, deletePlotEdge, type EdgeDraft } from '../src/plotEdges';
@@ -74,5 +75,32 @@ describe('shared plot edges',()=>{
   const migrated=await db.plotEdges.where('projectId').equals(restored.id).toArray();
   expect(migrated).toHaveLength(1);
   expect(migrated[0].type).toBe('normal');
+ });
+});
+
+describe('IndexedDB schema migration',()=>{
+ it('backfills existing v3 scene nextIds into canonical PlotEdges without removing manuscripts',async()=>{
+  db.close();
+  await db.delete();
+  const legacy=new Dexie('plotweaver');
+  legacy.version(3).stores({
+   projects:'id,updatedAt',
+   scenes:'id,projectId,order,stage',
+   manuscripts:'projectId'
+  });
+  await legacy.open();
+  const projectId=crypto.randomUUID(),first=crypto.randomUUID(),second=crypto.randomUUID(),timestamp=Date.now();
+  const base={projectId,createdAt:timestamp,updatedAt:timestamp,stage:'전개',purpose:'',body:'',entry:'',information:'',actions:'',outcome:'',eventId:'',order:0};
+  await legacy.table('projects').add({id:projectId,title:'기존 시나리오',kind:'TRPG 시나리오',stage:'',difficulty:'',mode:'혼합형',model:'사건 중심형',nextTask:'',createdAt:timestamp,updatedAt:timestamp});
+  await legacy.table('scenes').bulkAdd([{...base,id:first,title:'A',nextIds:[second]},{...base,id:second,title:'B',nextIds:[],order:1}]);
+  await legacy.table('manuscripts').add({projectId,content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'예전 원고'}]}]},updatedAt:timestamp});
+  legacy.close();
+
+  await db.open();
+  const graph=await db.plotEdges.where('projectId').equals(projectId).toArray();
+  expect(graph).toHaveLength(1);
+  expect(graph[0].fromSceneId).toBe(first);
+  expect(graph[0].toSceneId).toBe(second);
+  expect((await db.manuscripts.get(projectId))?.content.content?.[0].content?.[0].text).toBe('예전 원고');
  });
 });
