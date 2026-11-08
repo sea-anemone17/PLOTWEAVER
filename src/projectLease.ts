@@ -1,4 +1,5 @@
 import {db,now,type EditorLease} from './data';
+import type {Table} from 'dexie';
 
 export const LEASE_DURATION_MS=16000;
 export const LEASE_REFRESH_MS=4000;
@@ -51,4 +52,17 @@ export async function assertProjectLeaseWritable(projectId:string,at=now()){
 }
 export async function assertProjectCanChange(projectId:string){
  await db.transaction('r',db.editLeases,()=>assertProjectLeaseWritable(projectId));
+}
+
+/**
+ * Guard shorter project mutations too, not only the rich text autosave path.
+ * IndexedDB serializes ownership checks with the write transaction across tabs.
+ */
+export async function guardedProjectWrite<T>(projectId:string,tables:Table<any,any>[],operation:()=>Promise<T>):Promise<T>{
+ const activeTables=[...new Set<Table<any,any>>([db.editLeases,db.projects,...tables])];
+ return db.transaction('rw',activeTables,async()=>{
+  await assertProjectLeaseWritable(projectId);
+  if(!await db.projects.get(projectId))throw Error('삭제되었거나 누락된 프로젝트입니다.');
+  return operation();
+ });
 }
