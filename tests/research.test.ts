@@ -103,6 +103,20 @@ describe('research library backup',()=>{
   expect(saved).toHaveLength(2);
   expect(saved[0].snapshot.claim).toBe(saved[1].snapshot.claim);
  });
+ it('remaps embedded wiki link marks when restoring research notes',async()=>{
+  const target=await createKnowledge('literature');
+  const source=await createKnowledge('concept');
+  await db.knowledgeNotes.update(target.id,{title:'참조 대상'});
+  await db.knowledgeNotes.update(source.id,{title:'메모',content:{
+   type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'참조 대상',marks:[{type:'link',attrs:{href:'pw://knowledge/'+target.id}}]}]}]
+  }});
+  const backup=await makeResearchBackup();
+  await importResearchBackup(JSON.stringify(backup));
+  const notes=await db.knowledgeNotes.toArray();
+  const importedTarget=notes.find(n=>n.title==='참조 대상'&&n.id!==target.id);
+  const importedSource=notes.find(n=>n.title==='메모'&&n.id!==source.id);
+  expect(importedSource?.content.content?.[0].content?.[0].marks?.[0].attrs?.href).toBe('pw://knowledge/'+importedTarget?.id);
+ });
  it('rejects missing global references before any database write',async()=>{
   const root=await addGlobalIdea(null,'첫 아이디어');
   const raw=await makeResearchBackup();
