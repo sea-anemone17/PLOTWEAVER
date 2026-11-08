@@ -61,7 +61,7 @@ function paragraphs(nodes:JSONContent[],level=0):Paragraph[]{
 export async function exportDocx(projectId:string,title:string,includePrivate:boolean){
  const record=await db.manuscripts.get(projectId);
  const sceneDocs=await db.sceneDocs.where('projectId').equals(projectId).toArray();
- const scenes=await db.scenes.where('projectId').equals(projectId).toArray();
+ const scenes=await db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray();
  const children:(Paragraph|Table)[]=[];
  children.push(new Paragraph({text:title,heading:HeadingLevel.TITLE,spacing:{after:260}}));
  const appendNodes=(nodes:JSONContent[])=>{
@@ -109,7 +109,7 @@ type Props={projectId:string;sceneId?:string;onSelectScene?:(id:string)=>void};
 export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props){
  const record=useLiveQuery(async()=>sceneId?(await db.sceneDocs.where('sceneId').equals(sceneId).first())??null:(await db.manuscripts.get(projectId))??null,[projectId,sceneId]);
  const scene=useLiveQuery(()=>sceneId?db.scenes.get(sceneId):undefined,[sceneId]);
- const projectScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const projectScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray(),[projectId],[]);
  const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const links=useLiveQuery(()=>sceneId?db.sceneLinks.where('sceneId').equals(sceneId).toArray():[],[sceneId],[]);
