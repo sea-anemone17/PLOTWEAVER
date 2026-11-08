@@ -82,12 +82,12 @@ export default function ExportProfiles({projectId,title}:Props){
      ] as const).map(opt=><label className="checkbox-line" key={opt.key}><input type="checkbox" checked={config[opt.key]} onChange={e=>change(opt.key,e.target.checked)}/>{opt.label}</label>)}
     </div>
     {config.includeScenes&&<details className="export-scene-selection">
-     <summary>장면별 출력 범위 설정 · {config.sceneIds?.length?'선택한 장면만':'전체 장면'}</summary>
+     <summary>장면별 출력 범위 설정 · {config.sceneIds===undefined?'전체 장면':'선택한 장면만'}</summary>
      <p className="muted small">선택하지 않으면 모든 장면을 출력합니다. 장면 목록의 순서가 DOCX 출력 순서입니다.</p>
-     <Button variant="soft" onClick={()=>change('sceneIds',[])}>전체 장면 포함</Button>
+     <Button variant="soft" onClick={()=>change('sceneIds',undefined)}>전체 장면 포함</Button>
      {scenes.map(scene=><label className="checkbox-line" key={scene.id}>
-      <input type="checkbox" checked={config.sceneIds?.includes(scene.id)||false} onChange={ev=>{
-       const chosen=new Set(config.sceneIds||[]);
+      <input type="checkbox" checked={config.sceneIds===undefined||config.sceneIds.includes(scene.id)} onChange={ev=>{
+       const chosen=new Set(config.sceneIds===undefined?scenes.map(s=>s.id):config.sceneIds);
        if(ev.target.checked)chosen.add(scene.id);else chosen.delete(scene.id);
        change('sceneIds',[...chosen]);
       }}/>{scene.title}
@@ -96,7 +96,7 @@ export default function ExportProfiles({projectId,title}:Props){
     <div className="export-preview">
      <strong>출력 범위 미리보기</strong>
      <p>기존 원고: {config.includeLegacy?(charCount?'포함':'내용 확인 필요'):'제외'}</p>
-     <p>장면: {config.includeScenes?(config.sceneIds?.length||scenes.length)+'개 중 작성된 원고':'제외'}</p>
+     <p>장면: {config.includeScenes?(config.sceneIds===undefined?scenes.length:config.sceneIds.length)+'개 중 작성된 원고':'제외'}</p>
      <p>핸드아웃: {config.includeHandouts?includedHandouts.length+'개 포함 대상':'제외'}</p>
      <p>GM 정보: {config.includePrivate?'포함 가능':'제외'}</p>
      <p className="muted small">이 미리보기는 포함 범위 요약이며 실제 페이지 배치 미리보기는 아닙니다. 이미지·PDF 핸드아웃 원본은 ZIP 백업 또는 별도 파일로 전달해야 합니다.</p>
