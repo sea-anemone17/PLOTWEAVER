@@ -23,7 +23,20 @@ function layoutIdeas(all:GlobalIdea[]):Positioned[]{
   if(!node.collapsed)for(const child of children.get(node.id)||[])visit(child,depth+1);
  };
  for(const node of children.get(null)||[])visit(node,0);
- for(const node of all)if(!seen.has(node.id))visit(node,0);
+ // Corrupt/orphaned roots may still be shown, but intentionally collapsed branches must stay hidden.
+ const hiddenByCollapse=(node:GlobalIdea)=>{
+  const checked=new Set<string>();
+  let parent=node.parentId;
+  while(parent&&!checked.has(parent)){
+   checked.add(parent);
+   const ancestor=lookup.get(parent);
+   if(!ancestor)break;
+   if(ancestor.collapsed)return true;
+   parent=ancestor.parentId;
+  }
+  return false;
+ };
+ for(const node of all)if(!seen.has(node.id)&&!hiddenByCollapse(node))visit(node,0);
  return output;
 }
 function IdeaFields({node}:{node:GlobalIdea}){
