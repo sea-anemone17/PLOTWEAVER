@@ -28,6 +28,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const [search,setSearch]=useState('');
  const [ideaStatus,setIdeaStatus]=useState('전체');
  const [plotType,setPlotType]=useState<'scenes'|'events'>('scenes');
+ const [manuscriptScene,setManuscriptScene]=useState('');
  const [plotView,setPlotView]=useState<'board'|'timeline'>('board');
  const [archiveType,setArchiveType]=useState<'lore'|'clues'>('lore');
  const [selectedQuestion,setSelectedQuestion]=useState<string|null>(null);
@@ -138,7 +139,16 @@ export default function Workspace({project,section,setSection,goHome,openProject
   </>}
   {section==='manuscript'&&<>
    <Header eyebrow="MANUSCRIPT" title="원고 편집기" description="하나의 연속 문서로 집필하고 제목과 목차로 이동합니다." action={()=>void exportDocx(id,project.title,false).catch(e=>alert(String(e)))} actionText="DOCX 다운로드"/>
-   <ManuscriptEditor key={id} projectId={id}/>
+   <div className="scene-manuscript-picker">
+    <label className="field"><span>집필 문서</span>
+      <select value={scenes.some(scene=>scene.id===manuscriptScene)?manuscriptScene:''} onChange={e=>setManuscriptScene(e.target.value)}>
+       <option value="">기존 연속 원고 (보존)</option>
+       {[...scenes].sort((a,b)=>a.order-b.order).map(scene=><option key={scene.id} value={scene.id}>장면 · {scene.title}</option>)}
+      </select>
+    </label>
+    <span className="muted small">장면별 원고는 독립적으로 저장합니다. 기존 원고는 지워지지 않습니다.</span>
+   </div>
+   <ManuscriptEditor key={id+':'+manuscriptScene} projectId={id} sceneId={scenes.some(scene=>scene.id===manuscriptScene)?manuscriptScene:undefined} onSelectScene={setManuscriptScene}/>
    <p className="hint">DOCX 출력 시 일부 고급 서식·이미지는 원본과 다르게 표시될 수 있습니다. JSON 프로젝트 백업을 원본으로 보관해 주세요.</p>
   </>}
   {section==='settings'&&<>
