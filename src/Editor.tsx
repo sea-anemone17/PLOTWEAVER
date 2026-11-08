@@ -14,7 +14,7 @@ import Color from '@tiptap/extension-color';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } from 'docx';
 import { db, downloadBlob, emptyDocument, now, fresh, touch } from './data';
-import { TrpgBlock, TRPG_BLOCK_TYPES, type TrpgBlockKind } from './TrpgBlock';
+import { TrpgBlock, TRPG_BLOCK_TYPES, TRPG_FIELD_SUGGESTIONS, type TrpgBlockKind } from './TrpgBlock';
 import PlotMiniGraph from './PlotMiniGraph';
 import { createPlotEdge, EDGE_TYPES, deletePlotEdge } from './plotEdges';
 import type { PlotEdgeType } from './data';
@@ -125,6 +125,8 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
  const [nextScene,setNextScene]=useState('');
  const [edgeKind,setEdgeKind]=useState<PlotEdgeType>('normal');
  const [branchEdgeId,setBranchEdgeId]=useState<string|null>(null);
+ const [activeBlock,setActiveBlock]=useState<{pos:number;kind:TrpgBlockKind;fields:Record<string,string>}|null>(null);
+ const [newField,setNewField]=useState('');
  const [status,setStatus]=useState('불러오는 중');
  const [headings,setHeadings]=useState<{text:string;pos:number;level:number}[]>([]);
  const queue=useRef<Promise<unknown>>(Promise.resolve());
@@ -136,12 +138,17 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   const $from=current.state.selection.$from;
   for(let depth=$from.depth;depth>0;depth--){
    const node=$from.node(depth);
-   if(node.type.name==='trpgBlock'&&node.attrs.kind==='branch'){
-    setBranchEdgeId(typeof node.attrs.edgeId==='string'?node.attrs.edgeId:'');
+   if(node.type.name==='trpgBlock'){
+    const kind=node.attrs.kind as TrpgBlockKind;
+    const raw=node.attrs.fields;
+    const fields:Record<string,string>=raw&&typeof raw==='object'&&!Array.isArray(raw)?Object.fromEntries(Object.entries(raw as Record<string,unknown>).filter((entry):entry is [string,string]=>typeof entry[1]==='string')):{};
+    setActiveBlock({pos:$from.before(depth),kind,fields});
+    setBranchEdgeId(kind==='branch'?(typeof node.attrs.edgeId==='string'?node.attrs.edgeId:''):null);
     return;
    }
   }
   setBranchEdgeId(null);
+  setActiveBlock(null);
  }
  // Capture the document at the time of the edit, not when a queued save eventually runs.
  function flush():Promise<void>{
@@ -211,6 +218,13 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   try{await db.sceneLinks.delete(id);await touch(projectId);}
   catch(e){alert('자료 연결 해제 실패: '+String(e));}
  }
+ function updateStructuredFields(fields:Record<string,string>){
+  if(!activeBlock)return;
+  const node=editor.state.doc.nodeAt(activeBlock.pos);
+  if(!node||node.type.name!=='trpgBlock')return;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(activeBlock.pos,undefined,{...node.attrs,fields}));
+  setActiveBlock({...activeBlock,fields});
+ }
  async function addSceneEdge(){
   if(!sceneId)return;
   try{
@@ -275,7 +289,22 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
     <div className="context-tabs" role="tablist" aria-label="장면 자료 탭">
      {([{key:'overview',label:'개요'},{key:'characters',label:'등장'},{key:'information',label:'정보'},{key:'narrative',label:'서사'}] as const).map(t=><button key={t.key} type="button" role="tab" aria-selected={panel===t.key} className={panel===t.key?'active':''} onClick={()=>{setPanel(t.key);setPick('');}}>{t.label}</button>)}
     </div>
-    {panel==='overview'&&<div className="context-section"><h4>{scene?.title||'장면 정보'}</h4><p><strong>목적</strong> {scene?.purpose||'아직 작성되지 않았습니다.'}</p><p><strong>진입</strong> {scene?.entry||'미정'}</p><p><strong>결과</strong> {scene?.outcome||'미정'}</p><p className="muted small">장면 정보는 플롯 보드의 장면 편집에서 수정합니다.</p></div>}
+    {activeBlock&&<div className="context-section block-structure">
+      <h4>선택한 블록 · {TRPG_BLOCK_TYPES[activeBlock.kind]}</h4>
+      <p className="muted small">자유 서술은 유지하고, 필요한 정보만 별도 항목으로 기록합니다.</p>
+      {Object.entries(activeBlock.fields).map(([name,value])=><div className="block-field" key={name}>
+       <label>{name}<textarea rows={2} value={value} onChange={e=>updateStructuredFields({...activeBlock.fields,[name]:e.target.value})}/></label>
+       <button type="button" onClick={()=>{const next={...activeBlock.fields};delete next[name];updateStructuredFields(next);}}>항목 제거</button>
+      </div>)}
+      <input list="pw-trpg-field-list" aria-label="추가할 항목 이름" value={newField} onChange={e=>setNewField(e.target.value)} placeholder="새 항목 이름"/>
+      <datalist id="pw-trpg-field-list">{TRPG_FIELD_SUGGESTIONS[activeBlock.kind].map(name=><option key={name} value={name}/>)}</datalist>
+      <button type="button" className="tool" disabled={!newField.trim()||Object.prototype.hasOwnProperty.call(activeBlock.fields,newField.trim())} onClick={()=>{
+       const name=newField.trim();
+       if(!name||Object.prototype.hasOwnProperty.call(activeBlock.fields,name))return;
+       updateStructuredFields({...activeBlock.fields,[name]:''});setNewField('');
+      }}>구조화 항목 추가</button>
+     </div>}
+     {panel==='overview'&&<div className="context-section"><h4>{scene?.title||'장면 정보'}</h4><p><strong>목적</strong> {scene?.purpose||'아직 작성되지 않았습니다.'}</p><p><strong>진입</strong> {scene?.entry||'미정'}</p><p><strong>결과</strong> {scene?.outcome||'미정'}</p><p className="muted small">장면 정보는 플롯 보드의 장면 편집에서 수정합니다.</p></div>}
     {panel==='characters'&&<div className="context-section"><h4>등장 NPC</h4>
       {links.filter(l=>l.resourceKind==='lore').length?links.filter(l=>l.resourceKind==='lore').map(l=><div className="context-link" key={l.id}><span>{lore.find(x=>x.id===l.resourceId)?.title||'연결된 자료가 없습니다'}</span><button type="button" onClick={()=>void removeResource(l.id)}>해제</button></div>):<p className="muted small">이 장면에 연결된 NPC가 없습니다.</p>}
       <select aria-label="등장 NPC 선택" value={pick} onChange={e=>setPick(e.target.value)}><option value="">NPC 선택…</option>{lore.filter(l=>l.kind==='NPC'&&!links.some(x=>x.resourceId===l.id)).map(l=><option key={l.id} value={l.id}>{l.title}</option>)}</select>
