@@ -145,6 +145,19 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
     entry.nextIds=entry.nextIds.map(mapId);
    }
+   // ProseMirror JSON may contain a branch block that refers to a PlotEdge.
+   // Remap existing edges; retain dangling IDs so the editor can show a broken-link warning.
+   if(name==='sceneDocs'&&entry.content&&typeof entry.content==='object'){
+    const remapNode=(node:JSONContent):JSONContent=>({
+     ...node,
+     attrs:node.attrs?{
+      ...node.attrs,
+      ...(typeof node.attrs.edgeId==='string'&&map.has(node.attrs.edgeId)?{edgeId:map.get(node.attrs.edgeId)}:{})
+     }:undefined,
+     content:node.content?.map(remapNode)
+    });
+    entry.content=remapNode(entry.content as JSONContent);
+   }
    return entry;
   });
  }
