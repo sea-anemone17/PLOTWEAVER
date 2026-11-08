@@ -21,6 +21,20 @@ export type PlotLayout = Base & {sceneId:string;x:number;y:number};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
 export type TrashedProject = {id:string;deletedAt:number;backup:Backup};
 
+// Global research data is intentionally independent of project-owned v0.1 idea cards.
+export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number};
+export type GlobalIdeaLink = {id:string;sourceId:string;targetId:string;createdAt:number};
+export type KnowledgeKind='thinker'|'school'|'literature'|'concept';
+export type KnowledgeNote = {id:string;kind:KnowledgeKind;title:string;content:JSONContent;sources:string;createdAt:number;updatedAt:number};
+export type KnowledgeLink = {id:string;fromId:string;toId:string;createdAt:number};
+export type ThemeCardKind='claim'|'reason'|'objection'|'reconsideration';
+export type ThemeCard = {id:string;themeId:string;kind:ThemeCardKind;text:string;order:number;createdAt:number;updatedAt:number};
+export type Theme = {id:string;title:string;claim:string;prose:JSONContent;createdAt:number;updatedAt:number};
+export type ThemeSnapshot = {title:string;claim:string;prose:JSONContent;cards:Pick<ThemeCard,'id'|'kind'|'text'|'order'>[]};
+export type ThemeRevision = {id:string;themeId:string;label:string;snapshot:ThemeSnapshot;createdAt:number};
+export type ProjectTheme = Base & {themeId:string;revisionId:string;pinned:ThemeSnapshot;notes:string};
+export type ThemeRelation = Base & {projectThemeId:string;targetKind:'scene'|'npc'|'clue'|'plotEdge';targetId:string;note:string};
+
 export class PlotDB extends Dexie {
  projects!:Table<Project,string>;ideas!:Table<Idea,string>;events!:Table<EventCard,string>;
  scenes!:Table<Scene,string>;questions!:Table<Question,string>;hypotheses!:Table<Hypothesis,string>;
@@ -28,6 +42,10 @@ export class PlotDB extends Dexie {
  manuscripts!:Table<Manuscript,string>;relations!:Table<Relation,string>;trash!:Table<TrashedProject,string>;
  sceneDocs!:Table<SceneDocument,string>;sceneLinks!:Table<SceneLink,string>;
  plotEdges!:Table<PlotEdge,string>;plotLayouts!:Table<PlotLayout,string>;
+ globalIdeas!:Table<GlobalIdea,string>;globalIdeaLinks!:Table<GlobalIdeaLink,string>;
+ knowledgeNotes!:Table<KnowledgeNote,string>;knowledgeLinks!:Table<KnowledgeLink,string>;
+ themes!:Table<Theme,string>;themeCards!:Table<ThemeCard,string>;themeRevisions!:Table<ThemeRevision,string>;
+ projectThemes!:Table<ProjectTheme,string>;themeRelations!:Table<ThemeRelation,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
@@ -51,6 +69,12 @@ export class PlotDB extends Dexie {
    }
    if(edges.length)await tx.table('plotEdges').bulkAdd(edges);
   });
+ this.version(5).stores({
+  globalIdeas:'id,parentId,order,updatedAt',globalIdeaLinks:'id,sourceId,targetId',
+  knowledgeNotes:'id,kind,updatedAt',knowledgeLinks:'id,fromId,toId',
+  themes:'id,updatedAt',themeCards:'id,themeId,kind,order',themeRevisions:'id,themeId,createdAt',
+  projectThemes:'id,projectId,themeId,revisionId',themeRelations:'id,projectId,projectThemeId,targetId'
+ });
  }
 }
 export const db=new PlotDB();
@@ -74,7 +98,7 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
  });
  return p;
 }
-export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts'] as const;
+export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations'] as const;
 export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null};
 
 // Snapshot all project records in one transaction so a backup cannot mix different edit states.
@@ -107,7 +131,7 @@ export function validateBackup(text:string):Backup{
  const ids=new Set<string>();
  let count=0;
  for(const name of collections){
-  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts'].includes(name)?[]:undefined);
+  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations'].includes(name)?[]:undefined);
   if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
   count+=rows.length;
   if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
@@ -140,7 +164,7 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
  for(const name of collections){
   restored[name]=(b.data[name]||[]).map(row=>{
    const entry:Record<string,unknown>={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
-   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId'])if(entry[key])entry[key]=mapId(entry[key]);
+   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId','projectThemeId'])if(entry[key])entry[key]=mapId(entry[key]);
    if(entry.nextIds!==undefined){
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
     entry.nextIds=entry.nextIds.map(mapId);
@@ -157,6 +181,11 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
      content:node.content?.map(remapNode)
     });
     entry.content=remapNode(entry.content as JSONContent);
+   }
+   if(name==='projectThemes'){
+    // A project backup is portable even when its global library is absent.
+    const pin=entry.pinned as Partial<ThemeSnapshot>|undefined;
+    if(!pin||typeof pin.title!=='string'||typeof pin.claim!=='string'||!Array.isArray(pin.cards)||!pin.prose||pin.prose.type!=='doc')throw Error('프로젝트에 고정된 주제의식 개정본이 손상되었습니다.');
    }
    return entry;
   });
