@@ -3,7 +3,7 @@ import {db,fresh,now,type ExportProfile} from './data';
 export type ExportPreset='gm'|'player'|'review';
 export const FONT_OPTIONS=['맑은 고딕','나눔고딕','바탕','Arial','Times New Roman'];
 export function profilePreset(projectId:string,preset:ExportPreset):ExportProfile{
- const common={...fresh(projectId),fontFamily:'맑은 고딕',fontSize:11,pageMargin:1440,includeLegacy:true,includeScenes:true,includeHandouts:true,sceneIds:[]};
+ const common={...fresh(projectId),fontFamily:'맑은 고딕',fontSize:11,pageMargin:1440,includeLegacy:true,includeScenes:true,includeHandouts:true,sceneIds:undefined};
  if(preset==='player')return {...common,name:'배포용',includePrivate:false,includeGMResources:false};
  if(preset==='review')return {...common,name:'검토용',includePrivate:false,includeGMResources:false,includeHandouts:false};
  return {...common,name:'GM 진행용',includePrivate:true,includeGMResources:true};
