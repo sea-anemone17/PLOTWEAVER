@@ -19,6 +19,7 @@ const nav:{key:Section;title:string;icon:typeof Home;hint:string}[]=[
  {key:'themes',title:'프로젝트 주제의식',icon:Layers3,hint:'서사 요소와 주제 적용'},
  {key:'handouts',title:'핸드아웃',icon:BookOpenText,hint:'텍스트 및 PDF·이미지'},
  {key:'export',title:'출력 프로필',icon:Download,hint:'DOCX 서식과 포함 범위'},
+ {key:'recovery',title:'원고 복구 기록',icon:Archive,hint:'자동 복구·보존 지점'},
  {key:'settings',title:'프로젝트 설정',icon:Settings2,hint:'백업과 내보내기'}
 ];
 const stages=['아직 소재가 없음','소재나 설정이 있음','임시 플롯이 있음','원고 작성 중','기존 작품을 수정 중'];
