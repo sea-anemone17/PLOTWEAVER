@@ -13,7 +13,7 @@ import TextStyle from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } from 'docx';
-import { db, downloadBlob, emptyDocument, now, touch } from './data';
+import { db, downloadBlob, emptyDocument, now } from './data';
 
 const extensions=[
  StarterKit, Underline, Link.configure({openOnClick:false}),
@@ -86,26 +86,48 @@ export default function ManuscriptEditor({projectId}:Props){
  const record=useLiveQuery(()=>db.manuscripts.get(projectId),[projectId]);
  const [status,setStatus]=useState('불러오는 중');
  const [headings,setHeadings]=useState<{text:string;pos:number;level:number}[]>([]);
+ const queue=useRef<Promise<unknown>>(Promise.resolve());
+ const pending=useRef<JSONContent|null>(null);
+ const generation=useRef(0);
+ const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
+ const loaded=useRef(false);
+ // Capture the document at the time of the edit, not when a queued save eventually runs.
+ function flush(){
+  if(timer.current!==null){clearTimeout(timer.current);timer.current=null;}
+  const snapshot=pending.current;
+  if(!snapshot)return;
+  pending.current=null;
+  const savingGeneration=generation.current;
+  queue.current=queue.current.catch(()=>undefined).then(async()=>{
+   await db.transaction('rw',db.manuscripts,db.projects,async()=>{
+    await db.manuscripts.put({projectId,content:snapshot,updatedAt:now()});
+    await db.projects.update(projectId,{updatedAt:now()});
+   });
+   if(savingGeneration===generation.current)setStatus('이 기기에 저장됨');
+  }).catch(()=>{
+   if(!pending.current)pending.current=snapshot;
+   setStatus('⚠ 저장 실패 — 변경 내용이 아직 저장되지 않았습니다');
+  });
+ }
+ useEffect(()=>()=>{flush();},[projectId]);
  const editor=useEditor({
   extensions,content:emptyDocument,editorProps:{attributes:{class:'document-page',spellcheck:'true'}},
   onUpdate:({editor})=>{
-   setStatus('저장 중…');
-   queue.current=queue.current.then(async()=>{
-    await db.manuscripts.put({projectId,content:editor.getJSON(),updatedAt:now()});
-    await touch(projectId);
-    setStatus('자동 저장됨');
-   }).catch(()=>setStatus('⚠ 저장 실패 — 백업을 확인하세요'));
-   setHeadings(collectHeadings(editor.getJSON()));
+   const snapshot=editor.getJSON();
+   generation.current++;
+   pending.current=snapshot;
+   setStatus('미저장 변경 · 저장 대기 중');
+   if(timer.current!==null)clearTimeout(timer.current);
+   timer.current=setTimeout(flush,450);
+   setHeadings(collectHeadings(snapshot));
   }
  },[projectId]);
- const queue=useRef<Promise<unknown>>(Promise.resolve());
- const loaded=useRef(false);
  useEffect(()=>{
   if(!editor||!record||loaded.current)return;
   editor.commands.setContent(record.content,false);
   loaded.current=true;setStatus('자동 저장됨');setHeadings(collectHeadings(record.content));
  },[record,editor]);
- if(!editor)return <div className="empty">편집기를 준비하고 있습니다…</div>;
+ if(!editor||record===undefined)return <div className="empty">저장된 원고를 불러오고 있습니다…</div>;
  const action=(label:string,cb:()=>void,active=false)=><button type="button" className={active?'tool active':'tool'} title={label} onClick={cb}>{label}</button>;
  const imagePick=async(file:File)=>{
   if(file.size>3*1024*1024){alert('이미지는 3MB 이하로 선택해 주세요.');return;}
