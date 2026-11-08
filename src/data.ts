@@ -13,18 +13,21 @@ export type Clue = Base & {title:string;body:string;truth:string;where:string;co
 export type Answer = Base & {promptId:string;body:string;status:'답변'|'보류'|'해당 없음'};
 export type Manuscript = {projectId:string;content:JSONContent;updatedAt:number};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
+export type TrashedProject = {id:string;deletedAt:number;backup:Backup};
 
 export class PlotDB extends Dexie {
  projects!:Table<Project,string>;ideas!:Table<Idea,string>;events!:Table<EventCard,string>;
  scenes!:Table<Scene,string>;questions!:Table<Question,string>;hypotheses!:Table<Hypothesis,string>;
  lore!:Table<Lore,string>;clues!:Table<Clue,string>;answers!:Table<Answer,string>;
- manuscripts!:Table<Manuscript,string>;relations!:Table<Relation,string>;
+ manuscripts!:Table<Manuscript,string>;relations!:Table<Relation,string>;trash!:Table<TrashedProject,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
  hypotheses:'id,projectId,questionId',lore:'id,projectId,kind',clues:'id,projectId',
  answers:'id,projectId,promptId',manuscripts:'projectId',relations:'id,projectId,sourceId,targetId'
- });}
+ });
+ this.version(2).stores({trash:'id,deletedAt'});
+ }
 }
 export const db=new PlotDB();
 export const uid=()=>crypto.randomUUID();
@@ -49,11 +52,17 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
 }
 export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations'] as const;
 export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null};
-export async function makeBackup(id:string):Promise<Backup>{
- const project=await db.projects.get(id);if(!project)throw Error('프로젝트를 찾을 수 없습니다.');
+
+// Snapshot all project records in one transaction so a backup cannot mix different edit states.
+async function collectBackup(id:string):Promise<Backup>{
+ const project=await db.projects.get(id);
+ if(!project)throw Error('프로젝트를 찾을 수 없습니다.');
  const data:Record<string,unknown[]>={};
  for(const name of collections)data[name]=await db.table(name).where('projectId').equals(id).toArray();
- return{format:'plotweaver',version:1,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null};
+ return {format:'plotweaver',version:1,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null};
+}
+export async function makeBackup(id:string):Promise<Backup>{
+ return db.transaction('r',db.tables,()=>collectBackup(id));
 }
 export function downloadBlob(blob:Blob,name:string){
  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;
@@ -63,44 +72,83 @@ export async function downloadBackup(id:string){
  const b=await makeBackup(id);
  downloadBlob(new Blob([JSON.stringify(b,null,2)],{type:'application/json'}),b.project.title.replace(/[\\/:*?"<>|]/g,'_')+'.plotweaver.json');
 }
-export async function restoreBackup(text:string,duplicate=false):Promise<Project>{
- const raw:unknown=JSON.parse(text);
- if(!raw||typeof raw!=='object')throw Error('파일 형식이 올바르지 않습니다.');
+export function validateBackup(text:string):Backup{
+ if(text.length>60_000_000)throw Error('백업 파일이 너무 큽니다.');
+ let raw:unknown;
+ try{raw=JSON.parse(text);}catch{throw Error('JSON 백업 파일을 읽을 수 없습니다.');}
+ if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('백업 파일 형식이 올바르지 않습니다.');
  const b=raw as Partial<Backup>;
- if(b.format!=='plotweaver'||b.version!==1||!b.project||typeof b.project.id!=='string'||typeof b.project.title!=='string'||!b.data||typeof b.data!=='object')throw Error('지원하지 않는 백업 형식 또는 버전입니다.');
- const id=uid(),map=new Map<string,string>([[b.project.id,id]]);
+ if(b.format!=='plotweaver'||b.version!==1||!b.project||typeof b.project.id!=='string'||!b.project.id||typeof b.project.title!=='string'||!b.data||typeof b.data!=='object'||Array.isArray(b.data))throw Error('지원하지 않는 백업 형식 또는 버전입니다.');
+ const ids=new Set<string>();
+ let count=0;
  for(const name of collections){
-  const rows=b.data[name]||[];
-  if(!Array.isArray(rows)||rows.length>200000)throw Error('손상된 카드 목록입니다.');
+  const rows=b.data[name];
+  if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
+  count+=rows.length;
+  if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
   for(const row of rows){
-   if(!row||typeof row!=='object'||typeof (row as {id?:unknown}).id!=='string')throw Error('손상된 카드가 있습니다.');
-   map.set((row as {id:string}).id,uid());
+   if(!row||typeof row!=='object'||Array.isArray(row))throw Error(name+' 자료 형식이 올바르지 않습니다.');
+   const obj=row as Record<string,unknown>;
+   if(typeof obj.id!=='string'||!obj.id||ids.has(obj.id)||obj.projectId!==b.project.id)throw Error(name+' 자료 ID 또는 소속 프로젝트가 잘못되었습니다.');
+   ids.add(obj.id);
   }
  }
- const mapId=(v:unknown)=>typeof v==='string'?map.get(v)||v:'';
+ if(b.manuscript!==null&&b.manuscript!==undefined){
+  const doc=b.manuscript.content;
+  if(b.manuscript.projectId!==b.project.id||!doc||doc.type!=='doc'||!Array.isArray(doc.content))throw Error('원고 데이터가 손상되었습니다.');
+ }
+ return b as Backup;
+}
+export async function restoreBackup(text:string,duplicate=false):Promise<Project>{
+ const b=validateBackup(text);
+ const id=uid(),map=new Map<string,string>([[b.project.id,id]]);
+ for(const name of collections)for(const row of b.data[name]){
+  const oldId=(row as {id:string}).id;
+  map.set(oldId,uid());
+ }
+ const mapId=(value:unknown):string=>{
+  if(value===null||value===undefined||value==='')return '';
+  if(typeof value!=='string'||!map.has(value))throw Error('백업 내부의 자료 참조가 손상되었습니다.');
+  return map.get(value)!;
+ };
+ const restored:Record<string,Record<string,unknown>[]>={};
+ for(const name of collections){
+  restored[name]=b.data[name].map(row=>{
+   const entry={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
+   for(const key of ['questionId','eventId','sourceId','targetId'])if(entry[key])entry[key]=mapId(entry[key]);
+   if(entry.nextIds!==undefined){
+    if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
+    entry.nextIds=entry.nextIds.map(mapId);
+   }
+   return entry;
+  });
+ }
  const project:Project={...b.project,id,title:b.project.title+(duplicate?' (복제본)':' (복원)'),createdAt:now(),updatedAt:now()};
  await db.transaction('rw',db.tables,async()=>{
   await db.projects.add(project);
-  for(const name of collections){
-   const rows=((b.data||{})[name]||[]) as Record<string,unknown>[];
-   const restored=rows.map(row=>{
-    const result:{[key:string]:unknown}={...row,id:mapId(row.id),projectId:id};
-    for(const key of ['questionId','eventId','sourceId','targetId'])if(result[key])result[key]=mapId(result[key]);
-    if(Array.isArray(result.nextIds))result.nextIds=result.nextIds.map(mapId);
-    return result;
-   });
-   if(restored.length)await db.table(name).bulkAdd(restored);
-  }
+  for(const name of collections)if(restored[name].length)await db.table(name).bulkAdd(restored[name]);
   await db.manuscripts.put({projectId:id,content:b.manuscript?.content||emptyDocument,updatedAt:now()});
  });
  return project;
 }
 export async function duplicateProject(id:string){return restoreBackup(JSON.stringify(await makeBackup(id)),true);}
+
+// The trash entry and removal of live data are atomic; failed deletes never lose the snapshot.
 export async function deleteProject(id:string){
  await db.transaction('rw',db.tables,async()=>{
+  const backup=await collectBackup(id);
+  await db.trash.put({id,deletedAt:now(),backup});
   for(const name of collections)await db.table(name).where('projectId').equals(id).delete();
-  await db.manuscripts.delete(id);await db.projects.delete(id);
+  await db.manuscripts.delete(id);
+  await db.projects.delete(id);
  });
+}
+export async function restoreDeletedProject(id:string):Promise<Project>{
+ const item=await db.trash.get(id);
+ if(!item)throw Error('휴지통에서 프로젝트를 찾을 수 없습니다.');
+ const project=await restoreBackup(JSON.stringify(item.backup));
+ await db.trash.delete(id);
+ return project;
 }
 export function recommend(p:Project){
  if(p.nextTask.trim())return p.nextTask;
