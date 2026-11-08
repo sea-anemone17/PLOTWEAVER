@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useEditor, EditorContent, type JSONContent } from '@tiptap/react';
+import { useEditor, EditorContent, type JSONContent, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
@@ -123,6 +123,7 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
  const [pick,setPick]=useState('');
  const [nextScene,setNextScene]=useState('');
  const [edgeKind,setEdgeKind]=useState<PlotEdgeType>('normal');
+ const [branchEdgeId,setBranchEdgeId]=useState<string|null>(null);
  const [status,setStatus]=useState('불러오는 중');
  const [headings,setHeadings]=useState<{text:string;pos:number;level:number}[]>([]);
  const queue=useRef<Promise<unknown>>(Promise.resolve());
@@ -130,6 +131,17 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
  const generation=useRef(0);
  const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const loaded=useRef(false);
+ function trackSelectedBranch(current:TiptapEditor){
+  const $from=current.state.selection.$from;
+  for(let depth=$from.depth;depth>0;depth--){
+   const node=$from.node(depth);
+   if(node.type.name==='trpgBlock'&&node.attrs.kind==='branch'){
+    setBranchEdgeId(typeof node.attrs.edgeId==='string'?node.attrs.edgeId:'');
+    return;
+   }
+  }
+  setBranchEdgeId(null);
+ }
  // Capture the document at the time of the edit, not when a queued save eventually runs.
  function flush():Promise<void>{
   if(timer.current!==null){clearTimeout(timer.current);timer.current=null;}
@@ -160,7 +172,9 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
  useEffect(()=>()=>{void flush().catch(()=>undefined);},[projectId,sceneId]);
  const editor=useEditor({
   extensions,content:emptyDocument,editorProps:{attributes:{class:'document-page',spellcheck:'true'}},
+  onSelectionUpdate:({editor})=>trackSelectedBranch(editor),
   onUpdate:({editor})=>{
+   trackSelectedBranch(editor);
    const snapshot=editor.getJSON();
    generation.current++;
    pending.current=snapshot;
@@ -174,7 +188,7 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   if(!editor||record===undefined||loaded.current)return;
   const content=record?.content||emptyDocument;
   editor.commands.setContent(content,false);
-  loaded.current=true;setStatus(record?'이 기기에 저장됨':'새 장면 원고');setHeadings(collectHeadings(content));
+  loaded.current=true;setStatus(record?'이 기기에 저장됨':'새 장면 원고');setHeadings(collectHeadings(content));trackSelectedBranch(editor);
  },[record,editor]);
  if(!editor||record===undefined)return <div className="empty">저장된 원고를 불러오고 있습니다…</div>;
  const action=(label:string,cb:()=>void,active=false)=><button type="button" className={active?'tool active':'tool'} title={label} onClick={cb}>{label}</button>;
@@ -274,7 +288,20 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
     {panel==='narrative'&&<div className="context-section"><h4>현재 장면의 진행 관계</h4>
       <PlotMiniGraph sceneId={sceneId} scenes={projectScenes} edges={plotEdges} onNavigate={onSelectScene}/>
       <div className="context-link"><span>전체 플롯 관계도</span><button type="button" onClick={onOpenPlot}>열기</button></div>
-      <h4>다음 장면 연결</h4>
+      {branchEdgeId!==null&&<div className="branch-binding">
+        <h4>선택 중인 원고 분기 블록</h4>
+        <p className="muted small">현재 커서가 위치한 분기 블록에 실제 진행 관계를 연결합니다. 블록 삭제 시 관계는 유지됩니다.</p>
+        <select aria-label="분기 블록의 연결 관계" value={branchEdgeId} onChange={e=>{
+         const value=e.target.value;
+         editor.chain().focus().updateAttributes('trpgBlock',{edgeId:value||null}).run();
+         setBranchEdgeId(value);
+        }}>
+         <option value="">아직 연결하지 않음</option>
+         {branchEdgeId&&!plotEdges.some(e=>e.id===branchEdgeId)&&<option value={branchEdgeId}>삭제되거나 누락된 연결</option>}
+         {plotEdges.filter(e=>e.fromSceneId===sceneId).map(edge=><option key={edge.id} value={edge.id}>{edge.label||'선택 분기'} → {edge.toSceneId?projectScenes.find(s=>s.id===edge.toSceneId)?.title||'삭제된 장면':'미정'}</option>)}
+        </select>
+       </div>}
+       <h4>다음 장면 연결</h4>
       <select aria-label="다음 장면 선택" value={nextScene} onChange={e=>setNextScene(e.target.value)}>
        <option value="">아직 결정하지 않음</option>
        {projectScenes.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}
