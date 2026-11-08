@@ -1,8 +1,8 @@
 import {useEffect,useRef,useState} from 'react';
 import {registerEditorFlusher,trackEditorWrite} from './saveBarrier';
 
-type Props={id:string;value:string;label:string;rows?:number;placeholder?:string;onSave:(value:string)=>Promise<unknown>};
-export default function ResearchTextField({id,value,label,rows,placeholder,onSave}:Props){
+type Props={id:string;value:string;label:string;rows?:number;placeholder?:string;saveScope?:string;onSave:(value:string)=>Promise<unknown>};
+export default function ResearchTextField({id,value,label,rows,placeholder,onSave,saveScope='__global__'}:Props){
  const [draft,setDraft]=useState(value);
  const pending=useRef<string|null>(null);
  const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
@@ -19,10 +19,10 @@ export default function ResearchTextField({id,value,label,rows,placeholder,onSav
    setStatus('저장 실패');
    throw error;
   });
-  trackEditorWrite('__global__',queue.current);
+  trackEditorWrite(saveScope,queue.current);
   return queue.current.then(()=>undefined);
  }
- useEffect(()=>registerEditorFlusher('__global__',flush),[id]);
+ useEffect(()=>registerEditorFlusher(saveScope,flush),[id,saveScope]);
  useEffect(()=>()=>{void flush().catch(()=>undefined);},[id]);
  const change=(next:string)=>{
   setDraft(next);pending.current=next;setStatus('저장 대기');
