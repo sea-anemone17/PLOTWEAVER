@@ -1,4 +1,5 @@
 import { db, fresh, now, touch, type PlotEdge, type PlotEdgeType } from './data';
+import {guardedProjectWrite} from './projectLease';
 
 export const EDGE_TYPES: {value:PlotEdgeType;label:string}[]=[
  {value:'normal',label:'일반 진행'},
@@ -29,27 +30,33 @@ function cleanDraft(d:EdgeDraft):EdgeDraft{
 }
 export async function createPlotEdge(projectId:string,draft:EdgeDraft):Promise<PlotEdge>{
  const d=cleanDraft(draft);
- await assertScene(projectId,d.fromSceneId,true);
- await assertScene(projectId,d.toSceneId,false);
- const edge:PlotEdge={...fresh(projectId),...d};
- await db.plotEdges.add(edge);
- await touch(projectId);
- return edge;
+ return guardedProjectWrite(projectId,[db.scenes,db.plotEdges],async()=>{
+  await assertScene(projectId,d.fromSceneId,true);
+  await assertScene(projectId,d.toSceneId,false);
+  const edge:PlotEdge={...fresh(projectId),...d};
+  await db.plotEdges.add(edge);
+  await touch(projectId);
+  return edge;
+ });
 }
 export async function updatePlotEdge(projectId:string,edgeId:string,draft:EdgeDraft){
  const d=cleanDraft(draft);
- const previous=await db.plotEdges.get(edgeId);
- if(!previous||previous.projectId!==projectId)throw Error('진행 관계를 찾을 수 없습니다.');
- await assertScene(projectId,d.fromSceneId,true);
- await assertScene(projectId,d.toSceneId,false);
- await db.plotEdges.update(edgeId,{...d,updatedAt:now()});
- await touch(projectId);
+ await guardedProjectWrite(projectId,[db.scenes,db.plotEdges],async()=>{
+  const previous=await db.plotEdges.get(edgeId);
+  if(!previous||previous.projectId!==projectId)throw Error('진행 관계를 찾을 수 없습니다.');
+  await assertScene(projectId,d.fromSceneId,true);
+  await assertScene(projectId,d.toSceneId,false);
+  await db.plotEdges.update(edgeId,{...d,updatedAt:now()});
+  await touch(projectId);
+ });
 }
 export async function deletePlotEdge(projectId:string,edgeId:string){
- const existing=await db.plotEdges.get(edgeId);
- if(!existing||existing.projectId!==projectId)throw Error('진행 관계를 찾을 수 없습니다.');
- await db.plotEdges.delete(edgeId);
- await touch(projectId);
+ await guardedProjectWrite(projectId,[db.plotEdges],async()=>{
+  const existing=await db.plotEdges.get(edgeId);
+  if(!existing||existing.projectId!==projectId)throw Error('진행 관계를 찾을 수 없습니다.');
+  await db.plotEdges.delete(edgeId);
+  await touch(projectId);
+ });
 }
 /** Edges are independent of scene order and can link the same pair with distinct conditions. */
 export function outgoing(edges:PlotEdge[],sceneId:string){return edges.filter(edge=>edge.fromSceneId===sceneId);}
