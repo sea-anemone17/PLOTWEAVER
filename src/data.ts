@@ -22,14 +22,14 @@ export type Relation = Base & {sourceId:string;targetId:string;type:string};
 export type TrashedProject = {id:string;deletedAt:number;backup:Backup};
 
 // Global research data is intentionally independent of project-owned v0.1 idea cards.
-export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number};
+export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number;deletedAt?:number};
 export type GlobalIdeaLink = {id:string;sourceId:string;targetId:string;createdAt:number};
 export type KnowledgeKind='thinker'|'school'|'literature'|'concept';
-export type KnowledgeNote = {id:string;kind:KnowledgeKind;title:string;content:JSONContent;sources:string;createdAt:number;updatedAt:number};
+export type KnowledgeNote = {id:string;kind:KnowledgeKind;title:string;content:JSONContent;sources:string;createdAt:number;updatedAt:number;deletedAt?:number};
 export type KnowledgeLink = {id:string;fromId:string;toId:string;createdAt:number};
 export type ThemeCardKind='claim'|'reason'|'objection'|'reconsideration';
 export type ThemeCard = {id:string;themeId:string;kind:ThemeCardKind;text:string;order:number;createdAt:number;updatedAt:number};
-export type Theme = {id:string;title:string;claim:string;prose:JSONContent;createdAt:number;updatedAt:number};
+export type Theme = {id:string;title:string;claim:string;prose:JSONContent;createdAt:number;updatedAt:number;deletedAt?:number};
 export type ThemeSnapshot = {title:string;claim:string;prose:JSONContent;cards:Pick<ThemeCard,'id'|'kind'|'text'|'order'>[]};
 export type ThemeRevision = {id:string;themeId:string;label:string;snapshot:ThemeSnapshot;createdAt:number};
 export type ProjectTheme = Base & {themeId:string;revisionId:string;pinned:ThemeSnapshot;notes:string};
