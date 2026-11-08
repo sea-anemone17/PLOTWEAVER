@@ -53,6 +53,10 @@ describe('shared plot edges',()=>{
  it('roundtrips graph edges and manual positions through project JSON backups',async()=>{
   const {project,scenes}=await fixture();
   const original=await createPlotEdge(project.id,edge(scenes[0].id,scenes[2].id));
+  await db.sceneDocs.add({
+   id:crypto.randomUUID(),projectId:project.id,sceneId:scenes[0].id,updatedAt:Date.now(),
+   content:{type:'doc',content:[{type:'trpgBlock',attrs:{kind:'branch',edgeId:original.id},content:[{type:'paragraph',content:[{type:'text',text:'진행 선택'}]}]}]}
+  });
   await db.plotLayouts.add({...fresh(project.id),sceneId:scenes[0].id,x:200,y:260});
   const copy=await restoreBackup(JSON.stringify(await makeBackup(project.id)));
   const restoredScenes=await db.scenes.where('projectId').equals(copy.id).toArray();
@@ -64,6 +68,8 @@ describe('shared plot edges',()=>{
   expect(restoredLayouts).toHaveLength(1);
   expect(restoredLayouts[0].sceneId).toBe(restoredScenes.find(s=>s.title==='도입')?.id);
   expect(restoredLayouts[0].x).toBe(200);
+  const restoredDoc=await db.sceneDocs.where('projectId').equals(copy.id).first();
+  expect(restoredDoc?.content.content?.[0].attrs?.edgeId).toBe(restoredEdges[0].id);
  });
  it('converts the old nextIds from legacy v1 backup into exactly one graph edge',async()=>{
   const {project,scenes}=await fixture();
