@@ -79,7 +79,7 @@ export default function ProjectThemes({projectId,onOpenGlobalThemes}:Props){
       <Button variant="soft" disabled={!targetId} onClick={()=>attempt(addLink())}>연결</Button>
      </div>
      {own.map(link=><div className="garden-link-row" key={link.id}><span>{TARGET_TYPES.find(t=>t.value===link.targetKind)?.label} · {labelFor(link)}</span>
-      <button title="관계만 제거" onClick={()=>attempt(db.themeRelations.delete(link.id))}>연결 해제</button>
+      <button title="관계만 제거" onClick={()=>attempt(guardedProjectWrite(projectId,[db.themeRelations],async()=>{await db.themeRelations.delete(link.id);}))}>연결 해제</button>
      </div>)}
      {!own.length&&<p className="muted small">연결된 장면이나 자료가 없습니다. 필요할 때만 추가하세요.</p>}
     </section>
