@@ -1,4 +1,5 @@
 import {db,fresh,now,type ExportProfile} from './data';
+import {guardedProjectWrite} from './projectLease';
 
 export type ExportPreset='gm'|'player'|'review';
 export const FONT_OPTIONS=['맑은 고딕','나눔고딕','바탕','Arial','Times New Roman'];
@@ -18,11 +19,14 @@ export function validateExportProfile(profile:ExportProfile){
 export async function addExportProfile(projectId:string,preset:ExportPreset){
  if(!await db.projects.get(projectId))throw Error('프로젝트가 없습니다.');
  const profile=profilePreset(projectId,preset);
- await db.exportProfiles.add(profile);return profile;
+ await guardedProjectWrite(projectId,[db.exportProfiles],async()=>{await db.exportProfiles.add(profile);});
+ return profile;
 }
 export async function updateExportProfile(profile:ExportProfile){
  validateExportProfile(profile);
- const current=await db.exportProfiles.get(profile.id);
- if(!current||current.projectId!==profile.projectId)throw Error('출력 프로필을 찾을 수 없습니다.');
- await db.exportProfiles.put({...profile,name:profile.name.trim(),updatedAt:now()});
+ await guardedProjectWrite(profile.projectId,[db.exportProfiles],async()=>{
+  const current=await db.exportProfiles.get(profile.id);
+  if(!current||current.projectId!==profile.projectId)throw Error('출력 프로필을 찾을 수 없습니다.');
+  await db.exportProfiles.put({...profile,name:profile.name.trim(),updatedAt:now()});
+ });
 }
