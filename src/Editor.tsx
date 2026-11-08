@@ -19,6 +19,7 @@ import PlotMiniGraph from './PlotMiniGraph';
 import { createPlotEdge, EDGE_TYPES, deletePlotEdge } from './plotEdges';
 import type { PlotEdgeType } from './data';
 import { flushProjectEdits, registerEditorFlusher, trackEditorWrite } from './saveBarrier';
+import {persistManuscript} from './recovery';
 import { profilePreset, validateExportProfile } from './exportProfiles';
 import type { ExportProfile } from './data';
 
@@ -191,15 +192,7 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   pending.current=null;
   const savingGeneration=generation.current;
   queue.current=queue.current.catch(()=>undefined).then(async()=>{
-   await db.transaction('rw',db.manuscripts,db.sceneDocs,db.scenes,db.projects,async()=>{
-    if(!await db.projects.get(projectId))throw Error('삭제된 프로젝트에는 원고를 저장할 수 없습니다.');
-    if(sceneId){
-     if(!await db.scenes.get(sceneId))throw Error('삭제된 장면에는 원고를 저장할 수 없습니다.');
-     const previous=await db.sceneDocs.where('sceneId').equals(sceneId).first();
-     await db.sceneDocs.put({id:previous?.id||crypto.randomUUID(),sceneId,projectId,content:snapshot,updatedAt:now()});
-    }else await db.manuscripts.put({projectId,content:snapshot,updatedAt:now()});
-    await db.projects.update(projectId,{updatedAt:now()});
-   });
+   await persistManuscript(projectId,sceneId,snapshot);
    if(savingGeneration===generation.current)setStatus('이 기기에 저장됨');
   }).catch((error:unknown)=>{
    if(!pending.current)pending.current=snapshot;
