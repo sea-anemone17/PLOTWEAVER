@@ -15,6 +15,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } from 'docx';
 import { db, downloadBlob, emptyDocument, now, fresh, touch } from './data';
 import { TrpgBlock, TRPG_BLOCK_TYPES, type TrpgBlockKind } from './TrpgBlock';
+import PlotMiniGraph from './PlotMiniGraph';
+import { createPlotEdge, EDGE_TYPES, deletePlotEdge } from './plotEdges';
+import type { PlotEdgeType } from './data';
 import { flushProjectEdits, registerEditorFlusher, trackEditorWrite } from './saveBarrier';
 
 const extensions=[
@@ -107,16 +110,19 @@ export async function exportDocx(projectId:string,title:string,includePrivate:bo
  downloadBlob(blob,title.replace(/[\\/:*?"<>|]/g,'_')+'.docx');
 }
 type PanelTab='outline'|'overview'|'characters'|'information'|'narrative';
-type Props={projectId:string;sceneId?:string;onSelectScene?:(id:string)=>void};
-export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props){
+type Props={projectId:string;sceneId?:string;onSelectScene?:(id:string)=>void;onOpenPlot?:()=>void};
+export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpenPlot}:Props){
  const record=useLiveQuery(async()=>sceneId?(await db.sceneDocs.where('sceneId').equals(sceneId).first())??null:(await db.manuscripts.get(projectId))??null,[projectId,sceneId]);
  const scene=useLiveQuery(()=>sceneId?db.scenes.get(sceneId):undefined,[sceneId]);
  const projectScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray(),[projectId],[]);
  const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const links=useLiveQuery(()=>sceneId?db.sceneLinks.where('sceneId').equals(sceneId).toArray():[],[sceneId],[]);
+ const plotEdges=useLiveQuery(()=>db.plotEdges.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const [panel,setPanel]=useState<PanelTab>(sceneId?'overview':'outline');
  const [pick,setPick]=useState('');
+ const [nextScene,setNextScene]=useState('');
+ const [edgeKind,setEdgeKind]=useState<PlotEdgeType>('normal');
  const [status,setStatus]=useState('불러오는 중');
  const [headings,setHeadings]=useState<{text:string;pos:number;level:number}[]>([]);
  const queue=useRef<Promise<unknown>>(Promise.resolve());
@@ -190,6 +196,18 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props
   try{await db.sceneLinks.delete(id);await touch(projectId);}
   catch(e){alert('자료 연결 해제 실패: '+String(e));}
  }
+ async function addSceneEdge(){
+  if(!sceneId)return;
+  try{
+   await createPlotEdge(projectId,{fromSceneId:sceneId,toSceneId:nextScene,type:edgeKind,label:'',condition:'',note:''});
+   setNextScene('');
+  }catch(e){alert('진행 관계 추가 실패: '+String(e));}
+ }
+ async function removeSceneEdge(edgeId:string){
+  if(!confirm('이 진행 관계를 해제하시겠습니까? 연결된 장면과 원고는 유지됩니다.'))return;
+  try{await deletePlotEdge(projectId,edgeId);}
+  catch(e){alert('진행 관계 삭제 실패: '+String(e));}
+ }
  const documentOutline=<>
   <div className="eyebrow">DOCUMENT OUTLINE</div>
   <h3>문서 목차</h3>
@@ -253,9 +271,23 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props
       <select aria-label="단서 선택" value={pick} onChange={e=>setPick(e.target.value)}><option value="">단서 선택…</option>{clues.filter(c=>!links.some(l=>l.resourceId===c.id)).map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select>
       <button className="tool" type="button" disabled={!pick} onClick={()=>void addResource('clues')}>단서 연결</button>
      </div>}
-    {panel==='narrative'&&<div className="context-section"><h4>장면 진행</h4>
-      {(scene?.nextIds||[]).length?(scene?.nextIds||[]).map(nextId=><button type="button" className="outline-link" key={nextId} onClick={()=>onSelectScene?.(nextId)}>{projectScenes.find(x=>x.id===nextId)?.title||'연결 대상 없음'} →</button>):<p className="muted small">연결된 다음 장면이 없습니다.</p>}
-      <p className="muted small">진행 관계의 조건·유형 편집은 후속 플롯 관계도 구현에서 제공됩니다.</p>
+    {panel==='narrative'&&<div className="context-section"><h4>현재 장면의 진행 관계</h4>
+      <PlotMiniGraph sceneId={sceneId} scenes={projectScenes} edges={plotEdges} onNavigate={onSelectScene}/>
+      <div className="context-link"><span>전체 플롯 관계도</span><button type="button" onClick={onOpenPlot}>열기</button></div>
+      <h4>다음 장면 연결</h4>
+      <select aria-label="다음 장면 선택" value={nextScene} onChange={e=>setNextScene(e.target.value)}>
+       <option value="">아직 결정하지 않음</option>
+       {projectScenes.map(s=><option key={s.id} value={s.id}>{s.title}</option>)}
+      </select>
+      <select aria-label="진행 유형" value={edgeKind} onChange={e=>setEdgeKind(e.target.value as PlotEdgeType)}>
+       {EDGE_TYPES.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+      </select>
+      <button type="button" className="tool" onClick={()=>void addSceneEdge()}>진행 관계 추가</button>
+      {plotEdges.filter(e=>e.fromSceneId===sceneId).map(edge=><div className="context-link" key={edge.id}>
+       <span>{edge.toSceneId?projectScenes.find(s=>s.id===edge.toSceneId)?.title||'삭제된 장면':'다음 장면 미정'} · {EDGE_TYPES.find(t=>t.value===edge.type)?.label||edge.type}</span>
+       <button type="button" onClick={()=>void removeSceneEdge(edge.id)}>해제</button>
+      </div>)}
+      <p className="muted small">조건, 메모, 선택지 이름은 전체 관계도에서 편집할 수 있습니다.</p>
      </div>}
     <details className="context-outline"><summary>현재 장면 목차</summary>{documentOutline}</details>
    </>:<>{documentOutline}<div className="outline-tip">💡 기존 연속 원고는 보존됩니다. 장면별 원고는 위의 장면 선택 메뉴에서 편집할 수 있습니다.</div></>}
