@@ -19,6 +19,8 @@ import PlotMiniGraph from './PlotMiniGraph';
 import { createPlotEdge, EDGE_TYPES, deletePlotEdge } from './plotEdges';
 import type { PlotEdgeType } from './data';
 import { flushProjectEdits, registerEditorFlusher, trackEditorWrite } from './saveBarrier';
+import { profilePreset, validateExportProfile } from './exportProfiles';
+import type { ExportProfile } from './data';
 
 const extensions=[
  StarterKit, TrpgBlock, Underline, Link.configure({openOnClick:false}),
@@ -70,40 +72,53 @@ function paragraphs(nodes:JSONContent[],level=0,includePrivate=true):Paragraph[]
  }
  return result;
 }
-export async function exportDocx(projectId:string,title:string,includePrivate:boolean){
+export async function exportDocx(projectId:string,title:string,settings:boolean|ExportProfile){
  await flushProjectEdits(projectId);
+ const profile:ExportProfile=typeof settings==='boolean'?profilePreset(projectId,settings?'gm':'player'):settings;
+ validateExportProfile(profile);
+ if(profile.projectId!==projectId)throw Error('다른 프로젝트의 출력 프로필입니다.');
  const record=await db.manuscripts.get(projectId);
  const sceneDocs=await db.sceneDocs.where('projectId').equals(projectId).toArray();
  const scenes=await db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray();
+ const handouts=profile.includeHandouts?await db.handouts.where('projectId').equals(projectId).toArray():[];
  const children:(Paragraph|Table)[]=[];
  children.push(new Paragraph({text:title,heading:HeadingLevel.TITLE,spacing:{after:260}}));
  const appendNodes=(nodes:JSONContent[])=>{
- for(const node of nodes){
-  if(node.type==='table'){
-   const rows=(node.content||[]).map(row=>new TableRow({children:(row.content||[]).map(cell=>new TableCell({
-    columnSpan:cell.attrs?.colspan||1,
-    rowSpan:cell.attrs?.rowspan||1,
-    children:paragraphs(cell.content||[],0,includePrivate).length?paragraphs(cell.content||[],0,includePrivate):[new Paragraph('')]
-   }))}));
-   if(rows.length)children.push(new Table({rows,width:{size:100,type:'pct'}}));
-  }else children.push(...paragraphs([node],0,includePrivate));
- }
- };
- if(sceneDocs.length){
-  const legacy=record?.content.content||[];
-  if(legacy.some(n=>textContent(n).trim()||n.type==='image'||n.type==='table')){
-   children.push(new Paragraph({text:'기존 연속 원고',heading:HeadingLevel.HEADING_1}));
-   appendNodes(legacy);
+  for(const node of nodes){
+   if(node.type==='table'){
+    const rows=(node.content||[]).map(row=>new TableRow({children:(row.content||[]).map(cell=>new TableCell({
+     columnSpan:cell.attrs?.colspan||1,
+     rowSpan:cell.attrs?.rowspan||1,
+     children:paragraphs(cell.content||[],0,profile.includePrivate).length?paragraphs(cell.content||[],0,profile.includePrivate):[new Paragraph('')]
+    }))}));
+    if(rows.length)children.push(new Table({rows,width:{size:100,type:'pct'}}));
+   }else children.push(...paragraphs([node],0,profile.includePrivate));
   }
-  const documents=new Map(sceneDocs.map(d=>[d.sceneId,d]));
+ };
+ const legacy=record?.content.content||[];
+ if(profile.includeLegacy&&legacy.some(n=>textContent(n).trim()||n.type==='image'||n.type==='table')){
+  if(profile.includeScenes&&sceneDocs.length)children.push(new Paragraph({text:'기존 연속 원고',heading:HeadingLevel.HEADING_1}));
+  appendNodes(legacy);
+ }
+ if(profile.includeScenes){
+  const docs=new Map(sceneDocs.map(d=>[d.sceneId,d]));
   for(const scene of scenes.sort((a,b)=>a.order-b.order)){
-   const document=documents.get(scene.id);
+   const document=docs.get(scene.id);
    if(!document)continue;
    children.push(new Paragraph({text:scene.title,heading:HeadingLevel.HEADING_1}));
    appendNodes(document.content.content||[]);
   }
- }else appendNodes(record?.content.content||[]);
- if(includePrivate){
+ }
+ const visibleHandouts=handouts.filter(h=>h.visibility==='player'||(profile.includePrivate&&h.visibility==='gm'));
+ if(visibleHandouts.length){
+  children.push(new Paragraph({text:'핸드아웃',heading:HeadingLevel.HEADING_1,pageBreakBefore:true}));
+  for(const handout of visibleHandouts){
+   children.push(new Paragraph({text:handout.title,heading:HeadingLevel.HEADING_2}));
+   if(handout.kind==='text')appendNodes(handout.content.content||[]);
+   else children.push(new Paragraph({text:'[파일 핸드아웃 — 실제 이미지/PDF는 ZIP 백업 또는 별도 파일로 전달해야 합니다.]'}));
+  }
+ }
+ if(profile.includePrivate&&profile.includeGMResources){
   const items=await db.lore.where('projectId').equals(projectId).toArray();
   if(items.length){
    children.push(new Paragraph({text:'GM 전용 자료',heading:HeadingLevel.HEADING_1,pageBreakBefore:true}));
@@ -113,9 +128,15 @@ export async function exportDocx(projectId:string,title:string,includePrivate:bo
    }
   }
  }
- const document=new Document({sections:[{children}],creator:'PLOTWEAVER',title});
+ if(children.length===1)throw Error('출력할 원고가 없습니다. 출력 프로필에서 포함 범위를 확인해 주세요.');
+ const pageMargin=profile.pageMargin;
+ const document=new Document({
+  sections:[{properties:{page:{margin:{top:pageMargin,bottom:pageMargin,left:pageMargin,right:pageMargin}}},children}],
+  styles:{default:{document:{run:{font:profile.fontFamily,size:profile.fontSize*2}}}},
+  creator:'PLOTWEAVER',title
+ });
  const blob=await Packer.toBlob(document);
- downloadBlob(blob,title.replace(/[\\/:*?"<>|]/g,'_')+'.docx');
+ downloadBlob(blob,title.replace(/[\\/:*?"<>|]/g,'_')+' - '+profile.name.replace(/[\\/:*?"<>|]/g,'_')+'.docx');
 }
 type PanelTab='outline'|'overview'|'characters'|'information'|'narrative';
 type Props={projectId:string;sceneId?:string;onSelectScene?:(id:string)=>void;onOpenPlot?:()=>void};
