@@ -17,7 +17,8 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const id=project.id;
  const ideas=useLiveQuery(()=>db.ideas.where('projectId').equals(id).toArray(),[id],[]);
  const events=useLiveQuery(()=>db.events.where('projectId').equals(id).toArray(),[id],[]);
- const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(id).toArray(),[id],[]);
+ const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(id).filter(scene=>!scene.deletedAt).toArray(),[id],[]);
+ const trashedScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(id).filter(scene=>!!scene.deletedAt).toArray(),[id],[]);
  const questions=useLiveQuery(()=>db.questions.where('projectId').equals(id).toArray(),[id],[]);
  const hypotheses=useLiveQuery(()=>db.hypotheses.where('projectId').equals(id).toArray(),[id],[]);
  const lore=useLiveQuery(()=>db.lore.where('projectId').equals(id).toArray(),[id],[]);
@@ -62,7 +63,15 @@ export default function Workspace({project,section,setSection,goHome,openProject
   if(table==='hypotheses'&&v.status==='채택'&&data.questionId)await db.questions.update(data.questionId,{status:'해결',updatedAt:now()});
   await touch(id);
  }
- async function deleteDialog(){if(dialog && typeof dialog.initial?.id === 'string'){await db.table(dialog.table).delete(dialog.initial.id);await touch(id);}}
+ async function deleteDialog(){
+  if(!dialog||typeof dialog.initial?.id!=='string')return;
+  const recordId=dialog.initial.id;
+  if(dialog.table==='scenes'){
+   await db.scenes.update(recordId,{deletedAt:now(),updatedAt:now()});
+   if(manuscriptScene===recordId)setManuscriptScene('');
+  }else await db.table(dialog.table).delete(recordId);
+  await touch(id);
+ }
  async function promote(idea:Idea){
   const s={...fresh(id),title:idea.title||'아이디어 기반 장면',stage:'전개',purpose:'',body:idea.body,entry:'',information:'',actions:'',outcome:'',eventId:'',nextIds:[],order:scenes.length};
   await db.scenes.add(s);
@@ -156,6 +165,9 @@ export default function Workspace({project,section,setSection,goHome,openProject
    <div className="settings-grid"><section className="settings-panel"><h2>기본 정보</h2><label className="field"><span>프로젝트 제목</span><input key={id+'title'} defaultValue={project.title} onBlur={e=>{void db.projects.update(id,{title:e.target.value.trim()||'제목 미정',updatedAt:now()});}}/></label><label className="field"><span>작품 유형</span><select value={project.kind} onChange={e=>void db.projects.update(id,{kind:e.target.value,updatedAt:now()})}>{['TRPG 시나리오','소설','기타'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>작업 방식</span><select value={project.mode} onChange={e=>void db.projects.update(id,{mode:e.target.value,updatedAt:now()})}>{['안내형','자유형','혼합형'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>서사 모델</span><select value={project.model} onChange={e=>void db.projects.update(id,{model:e.target.value,updatedAt:now()})}><option>사건 중심형</option><option>미스터리 역설계형</option></select></label></section>
    <section className="settings-panel"><h2>내보내기 · 백업</h2><p className="muted">작업 데이터는 현재 브라우저의 IndexedDB에 보관됩니다. 브라우저 데이터 삭제·기기 변경 전에 반드시 백업하세요.</p><div className="settings-actions"><Button onClick={()=>void downloadBackup(id)}><Download size={16}/> 전체 JSON 백업</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,false)}><FileText size={16}/> 원고 DOCX</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,true)}><BookOpen size={16}/> GM 자료 포함 DOCX</Button></div></section>
    <section className="settings-panel"><h2>프로젝트 관리</h2><p className="muted">복제하면 독립된 새 프로젝트가 생성됩니다. 삭제한 프로젝트는 프로젝트 목록의 휴지통에서 복원할 수 있습니다. 개별 카드 삭제는 아직 복구되지 않습니다.</p><div className="settings-actions"><Button variant="soft" onClick={()=>void duplicateProject(id).then(p=>openProject(p.id)).catch(e=>alert(String(e)))}>프로젝트 복제</Button><Button variant="danger" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 복원할 수 있습니다.'))void deleteProject(id).then(goHome).catch(e=>alert('삭제 실패: '+String(e)));}}><Trash2 size={16}/> 프로젝트 삭제</Button></div></section>
+   <section className="settings-panel"><h2>장면 휴지통</h2><p className="muted">삭제한 장면과 장면 원고·자료 연결을 보존합니다. 복원하면 다시 편집할 수 있습니다.</p>
+    {trashedScenes.length?trashedScenes.map(scene=><div key={scene.id} className="context-link"><span>{scene.title}</span><Button variant="soft" onClick={()=>void db.scenes.update(scene.id,{deletedAt:0,updatedAt:now()}).then(()=>touch(id)).catch(e=>alert('장면 복원 실패: '+String(e)))}>복원</Button></div>):<p className="muted small">휴지통에 장면이 없습니다.</p>}
+   </section>
    <section className="settings-panel"><h2>데이터 구조</h2><p className="muted">아이디어 출처를 포함한 내부 카드 관계 {relations.length}건이 ID 참조로 관리됩니다. 다른 기기에서 작업하려면 JSON을 내려받아 프로젝트 목록의 복원 기능을 이용하세요.</p><p className="muted small">PLOTWEAVER v0.1 + v1.1 저장 안전성 개선 · 로컬 우선 · 자동 클라우드 동기화 없음</p></section></div>
   </>}
   {dialog&&<ModalEditor key={(dialog.initial?.id as string)||dialog.table+'new'} title={dialog.title} fields={dialog.fields} initial={{...dialog.defaults,...dialog.initial}} onSave={saveDialog} onCancel={()=>setDialog(null)} onDelete={dialog.initial?.id?deleteDialog:undefined}/>}
