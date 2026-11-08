@@ -1,6 +1,40 @@
 {
- "name":"plotweaver","private":true,"version":"0.1.0","type":"module",
- "scripts":{"dev":"vite --host 0.0.0.0","build":"tsc --noEmit && vite build","preview":"vite preview --host 0.0.0.0"},
- "dependencies":{"react":"^18.3.1","react-dom":"^18.3.1","lucide-react":"^0.468.0","dexie":"^4.0.11","dexie-react-hooks":"^1.1.7","@tiptap/react":"^2.11.7","@tiptap/starter-kit":"^2.11.7","@tiptap/extension-underline":"^2.11.7","@tiptap/extension-link":"^2.11.7","@tiptap/extension-text-align":"^2.11.7","@tiptap/extension-table":"^2.11.7","@tiptap/extension-table-row":"^2.11.7","@tiptap/extension-table-header":"^2.11.7","@tiptap/extension-table-cell":"^2.11.7","@tiptap/extension-image":"^2.11.7","@tiptap/extension-text-style":"^2.11.7","@tiptap/extension-color":"^2.11.7","docx":"^9.5.1"},
- "devDependencies":{"typescript":"^5.8.3","vite":"^6.2.6","@vitejs/plugin-react":"^4.4.1","vite-plugin-pwa":"^0.21.2","@types/react":"^18.3.18","@types/react-dom":"^18.3.5"}
+  "name": "plotweaver",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.468.0",
+    "dexie": "^4.0.11",
+    "dexie-react-hooks": "^1.1.7",
+    "@tiptap/react": "^2.11.7",
+    "@tiptap/starter-kit": "^2.11.7",
+    "@tiptap/extension-underline": "^2.11.7",
+    "@tiptap/extension-link": "^2.11.7",
+    "@tiptap/extension-text-align": "^2.11.7",
+    "@tiptap/extension-table": "^2.11.7",
+    "@tiptap/extension-table-row": "^2.11.7",
+    "@tiptap/extension-table-header": "^2.11.7",
+    "@tiptap/extension-table-cell": "^2.11.7",
+    "@tiptap/extension-image": "^2.11.7",
+    "@tiptap/extension-text-style": "^2.11.7",
+    "@tiptap/extension-color": "^2.11.7",
+    "docx": "^9.5.1",
+    "@tiptap/core": "^2.11.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.2.6",
+    "@vitejs/plugin-react": "^4.4.1",
+    "vite-plugin-pwa": "^0.21.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5"
+  }
 }
