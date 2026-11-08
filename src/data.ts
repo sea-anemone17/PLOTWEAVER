@@ -20,6 +20,9 @@ export type PlotEdge = Base & {fromSceneId:string;toSceneId:string;type:PlotEdge
 export type PlotLayout = Base & {sceneId:string;x:number;y:number};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
 export type TrashedProject = {id:string;deletedAt:number;backup:Backup;assets?:Asset[]};
+export type EditorLease={projectId:string;ownerId:string;expiresAt:number;updatedAt:number};
+export type RecoveryKind='auto'|'named'|'before-restore';
+export type RecoveryRecord=Base & {docKey:string;kind:RecoveryKind;label:string;content:JSONContent};
 export type Visibility='gm'|'player'|'draft';
 export type Asset = Base & {name:string;mime:string;size:number;blob:Blob};
 export type Handout = Base & {title:string;kind:'text'|'file';visibility:Visibility;content:JSONContent;assetId:string|null};
@@ -51,6 +54,7 @@ export class PlotDB extends Dexie {
  themes!:Table<Theme,string>;themeCards!:Table<ThemeCard,string>;themeRevisions!:Table<ThemeRevision,string>;
  projectThemes!:Table<ProjectTheme,string>;themeRelations!:Table<ThemeRelation,string>;
  assets!:Table<Asset,string>;handouts!:Table<Handout,string>;exportProfiles!:Table<ExportProfile,string>;
+ editLeases!:Table<EditorLease,string>;recoveryRecords!:Table<RecoveryRecord,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
@@ -84,6 +88,10 @@ export class PlotDB extends Dexie {
   assets:'id,projectId,updatedAt',handouts:'id,projectId,assetId,updatedAt',
   exportProfiles:'id,projectId,updatedAt'
  });
+ this.version(7).stores({
+  editLeases:'projectId,expiresAt',
+  recoveryRecords:'id,projectId,docKey,kind,createdAt'
+ });
  }
 }
 export const db=new PlotDB();
@@ -107,7 +115,7 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
  });
  return p;
 }
-export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles'] as const;
+export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles','recoveryRecords'] as const;
 export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null;assetManifest?:{id:string;name:string;mime:string;size:number}[]};
 
 // Snapshot all project records in one transaction so a backup cannot mix different edit states.
@@ -142,7 +150,7 @@ export function validateBackup(text:string):Backup{
  const ids=new Set<string>();
  let count=0;
  for(const name of collections){
-  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles'].includes(name)?[]:undefined);
+  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles','recoveryRecords'].includes(name)?[]:undefined);
   if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
   count+=rows.length;
   if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
@@ -202,6 +210,10 @@ export async function restoreBackup(text:string,duplicate=false,sourceAssets:Ass
     });
     entry.content=remapNode(entry.content as JSONContent);
    }
+   if(name==='recoveryRecords'){
+    if(typeof entry.docKey!=='string'||!entry.docKey)throw Error('원고 복구 기록의 문서 참조가 손상되었습니다.');
+    if(entry.docKey!=='legacy')entry.docKey=mapId(entry.docKey);
+   }
    if(name==='projectThemes'){
     // A project backup is portable even when its global library is absent.
     const pin=entry.pinned as Partial<ThemeSnapshot>|undefined;
@@ -242,6 +254,7 @@ export async function deleteProject(id:string){
   const backup=await collectBackup(id);
   const assets=await db.assets.where('projectId').equals(id).toArray();
   await db.trash.put({id,deletedAt:now(),backup,assets});
+  await db.editLeases.delete(id);
   await db.assets.where('projectId').equals(id).delete();
   for(const name of collections)await db.table(name).where('projectId').equals(id).delete();
   await db.manuscripts.delete(id);
