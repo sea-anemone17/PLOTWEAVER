@@ -9,9 +9,10 @@ import PlotGraph from './PlotGraph';
 import ProjectThemes from './ProjectThemes';
 import HandoutLibrary from './HandoutLibrary';
 import ExportProfiles from './ExportProfiles';
+import RecoveryHistory from './RecoveryHistory';
 import {downloadProjectPackage} from './backupZip';
 
-type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'themes'|'handouts'|'export'|'settings';
+type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'themes'|'handouts'|'export'|'recovery'|'settings';
 type Editable='ideas'|'events'|'scenes'|'questions'|'hypotheses'|'lore'|'clues';
 type Dialog={table:Editable;title:string;fields:Field[];initial?:Record<string,unknown>;defaults?:Record<string,unknown>};
 type Props={project:Project;section:Section;setSection:(s:Section)=>void;goHome:()=>void;openProject:(id:string)=>void;onOpenGlobalThemes:()=>void};
@@ -155,6 +156,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
   {section==='themes'&&<ProjectThemes projectId={id} onOpenGlobalThemes={onOpenGlobalThemes}/>}
   {section==='handouts'&&<HandoutLibrary projectId={id}/>}
   {section==='export'&&<ExportProfiles projectId={id} title={project.title}/>}
+  {section==='recovery'&&<RecoveryHistory projectId={id} onOpenManuscript={sceneId=>{setManuscriptScene(sceneId||'');setSection('manuscript');}}/>}
    {section==='manuscript'&&<>
    <Header eyebrow="MANUSCRIPT" title="원고 편집기" description="하나의 연속 문서로 집필하고 제목과 목차로 이동합니다." action={()=>void exportDocx(id,project.title,false).catch(e=>alert(String(e)))} actionText="DOCX 다운로드"/>
    <div className="scene-manuscript-picker">
@@ -173,7 +175,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
    <Header eyebrow="PROJECT SETTINGS" title="프로젝트 설정" description="저장, 복원, 출력 및 프로젝트 정보를 관리합니다."/>
    <div className="settings-grid"><section className="settings-panel"><h2>기본 정보</h2><label className="field"><span>프로젝트 제목</span><input key={id+'title'} defaultValue={project.title} onBlur={e=>{void db.projects.update(id,{title:e.target.value.trim()||'제목 미정',updatedAt:now()});}}/></label><label className="field"><span>작품 유형</span><select value={project.kind} onChange={e=>void db.projects.update(id,{kind:e.target.value,updatedAt:now()})}>{['TRPG 시나리오','소설','기타'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>작업 방식</span><select value={project.mode} onChange={e=>void db.projects.update(id,{mode:e.target.value,updatedAt:now()})}>{['안내형','자유형','혼합형'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>서사 모델</span><select value={project.model} onChange={e=>void db.projects.update(id,{model:e.target.value,updatedAt:now()})}><option>사건 중심형</option><option>미스터리 역설계형</option></select></label></section>
    <section className="settings-panel"><h2>내보내기 · 백업</h2><p className="muted">작업 데이터는 현재 브라우저의 IndexedDB에 보관됩니다. 브라우저 데이터 삭제·기기 변경 전에 반드시 백업하세요.</p><div className="settings-actions"><Button onClick={()=>void downloadProjectPackage(id).catch(e=>alert('ZIP 백업 실패: '+String(e)))}><Download size={16}/> 첨부파일 포함 ZIP 백업</Button>
-<Button variant="soft" onClick={()=>void downloadBackup(id).catch(e=>alert('JSON 백업 실패: '+String(e)))}><Download size={16}/> JSON 내보내기</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,false).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><FileText size={16}/> 원고 DOCX</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,true).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><BookOpen size={16}/> GM 자료 포함 DOCX</Button><Button variant="soft" onClick={()=>setSection('export')}>출력 프로필 관리</Button></div></section>
+<Button variant="soft" onClick={()=>void downloadBackup(id).catch(e=>alert('JSON 백업 실패: '+String(e)))}><Download size={16}/> JSON 내보내기</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,false).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><FileText size={16}/> 원고 DOCX</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,true).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><BookOpen size={16}/> GM 자료 포함 DOCX</Button><Button variant="soft" onClick={()=>setSection('export')}>출력 프로필 관리</Button><Button variant="soft" onClick={()=>setSection('recovery')}>원고 복구 기록</Button></div></section>
    <section className="settings-panel"><h2>프로젝트 관리</h2><p className="muted">복제하면 독립된 새 프로젝트가 생성됩니다. 삭제한 프로젝트는 프로젝트 목록의 휴지통에서 복원할 수 있습니다. 개별 카드 삭제는 아직 복구되지 않습니다.</p><div className="settings-actions"><Button variant="soft" onClick={()=>void duplicateProject(id).then(p=>openProject(p.id)).catch(e=>alert(String(e)))}>프로젝트 복제</Button><Button variant="danger" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 복원할 수 있습니다.'))void deleteProject(id).then(goHome).catch(e=>alert('삭제 실패: '+String(e)));}}><Trash2 size={16}/> 프로젝트 삭제</Button></div></section>
    <section className="settings-panel"><h2>장면 휴지통</h2><p className="muted">삭제한 장면과 장면 원고·자료 연결을 보존합니다. 복원하면 다시 편집할 수 있습니다.</p>
     {trashedScenes.length?trashedScenes.map(scene=><div key={scene.id} className="context-link"><span>{scene.title}</span><Button variant="soft" onClick={()=>void db.scenes.update(scene.id,{deletedAt:0,updatedAt:now()}).then(()=>touch(id)).catch(e=>alert('장면 복원 실패: '+String(e)))}>복원</Button></div>):<p className="muted small">휴지통에 장면이 없습니다.</p>}
