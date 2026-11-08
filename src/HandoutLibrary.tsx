@@ -4,6 +4,7 @@ import {Download,FilePlus,Paperclip,Trash2} from 'lucide-react';
 import {db,downloadBlob,emptyDocument,fresh,now,touch,type Visibility} from './data';
 import {Button,Empty,Header,Pill} from './UI';
 import GlobalRichEditor from './GlobalRichEditor';
+import {guardedProjectWrite} from './projectLease';
 
 const ACCEPT=['application/pdf','image/png','image/jpeg','image/webp'];
 const MAX_FILE=20*1024*1024;
@@ -24,14 +25,15 @@ export default function HandoutLibrary({projectId}:Props){
  const attempt=(p:Promise<unknown>)=>{void p.then(()=>setError('')).catch(e=>setError(e instanceof Error?e.message:String(e)));};
  async function createText(){
   const item={...fresh(projectId),title:'새 텍스트 핸드아웃',kind:'text' as const,visibility:'draft' as const,content:emptyDocument,assetId:null};
-  await db.handouts.add(item);await touch(projectId);setSelectedId(item.id);
+  await guardedProjectWrite(projectId,[db.handouts],async()=>{await db.handouts.add(item);await touch(projectId);});
+  setSelectedId(item.id);
  }
  async function upload(file?:File){
   if(!file)return;
   if(!ACCEPT.includes(file.type)||file.size>MAX_FILE){setError('PDF·PNG·JPG·WebP 파일만 지원하며 파일당 20MB 이하만 저장할 수 있습니다.');return;}
   setBusy(true);setError('');
   try{
-   await db.transaction('rw',db.projects,db.handouts,db.assets,async()=>{
+   await guardedProjectWrite(projectId,[db.handouts,db.assets],async()=>{
     if(!await db.projects.get(projectId))throw Error('프로젝트를 찾을 수 없습니다.');
     const asset={...fresh(projectId),name:file.name,mime:file.type,size:file.size,blob:file};
     const record={...fresh(projectId),title:file.name,kind:'file' as const,visibility:'draft' as const,assetId:asset.id,content:emptyDocument};
@@ -46,7 +48,7 @@ export default function HandoutLibrary({projectId}:Props){
   const item=await db.handouts.get(id);
   if(!item)return;
   if(!confirm('이 핸드아웃을 삭제하시겠습니까? 파일 원본도 프로젝트에서 삭제됩니다. 삭제하기 전 ZIP 백업을 권장합니다.'))return;
-  await db.transaction('rw',db.handouts,db.assets,db.projects,async()=>{
+  await guardedProjectWrite(projectId,[db.handouts,db.assets],async()=>{
    await db.handouts.delete(id);
    if(item.assetId){
     const shared=await db.handouts.where('assetId').equals(item.assetId).count();
@@ -77,17 +79,21 @@ export default function HandoutLibrary({projectId}:Props){
    </div></aside>
    {selected&&<article className="research-document">
     <div className="research-fields handout-heading">
-     <label>핸드아웃 이름<input key={selected.id+'title'} defaultValue={selected.title} onBlur={e=>attempt(db.handouts.update(selected.id,{title:e.target.value.trim()||'제목 없음',updatedAt:now()}).then(()=>touch(projectId)))}/></label>
-     <label>공개 범위<select value={selected.visibility} onChange={e=>attempt(db.handouts.update(selected.id,{visibility:e.target.value as Visibility,updatedAt:now()}).then(()=>touch(projectId)))}>
+     <label>핸드아웃 이름<input key={selected.id+'title'} defaultValue={selected.title} onBlur={e=>attempt(guardedProjectWrite(projectId,[db.handouts],async()=>{
+      await db.handouts.update(selected.id,{title:e.target.value.trim()||'제목 없음',updatedAt:now()});await touch(projectId);
+     }))}/></label>
+     <label>공개 범위<select value={selected.visibility} onChange={e=>attempt(guardedProjectWrite(projectId,[db.handouts],async()=>{
+      await db.handouts.update(selected.id,{visibility:e.target.value as Visibility,updatedAt:now()});await touch(projectId);
+     }))}>
       {VISIBILITIES.map(v=><option value={v.value} key={v.value}>{v.label}</option>)}
      </select></label>
     </div>
     {selected.kind==='text'?<>
      <Pill>편집 가능한 텍스트</Pill>
-     <GlobalRichEditor key={selected.id} documentId={selected.id} saveScope={projectId} content={selected.content} onSave={async content=>{
+     <GlobalRichEditor key={selected.id} documentId={selected.id} saveScope={projectId} content={selected.content} onSave={content=>guardedProjectWrite(projectId,[db.handouts],async()=>{
       await db.handouts.update(selected.id,{content,updatedAt:now()});
       await touch(projectId);
-     }}/>
+     })}/>
     </>:<>
      <Pill>{chosen?.mime||'파일 정보 없음'}</Pill>
      <p>원본 파일: {chosen?.name||'누락됨'} · {chosen?Math.round(chosen.size/1024).toLocaleString('ko-KR')+'KB':'첨부파일을 찾을 수 없음'}</p>
