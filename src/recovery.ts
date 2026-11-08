@@ -51,6 +51,24 @@ export async function persistManuscript(projectId:string,sceneId:string|undefine
   }
  });
 }
+/**
+ * A failed save may still be preserved without touching the canonical manuscript.
+ * Emergency drafts are isolated records, so a stale tab never overwrites the owner.
+ */
+export async function preserveEmergencyDraft(projectId:string,sceneId:string|undefined,content:JSONContent){
+ validateDocument(content);
+ return db.transaction('rw',db.recoveryRecords,db.projects,async()=>{
+  if(!await db.projects.get(projectId))throw Error('프로젝트가 이미 삭제되어 긴급 복구 기록을 저장할 수 없습니다.');
+  const key=documentKey(sceneId);
+  const old=(await db.recoveryRecords.where('docKey').equals(key).filter(
+   r=>r.projectId===projectId&&r.kind==='emergency'
+  ).toArray()).sort((a,b)=>b.createdAt-a.createdAt);
+  if(old[0]&&JSON.stringify(old[0].content)===JSON.stringify(content))return old[0];
+  const saved=await snapshot(projectId,key,'emergency','미저장 원고 긴급 보존',content);
+  if(old.length>=3)await db.recoveryRecords.bulkDelete(old.slice(2).map(r=>r.id));
+  return saved;
+ });
+}
 export async function createNamedCheckpoint(projectId:string,sceneId:string|undefined,label:string){
  const name=label.trim();
  if(!name||name.length>100)throw Error('복구 지점 이름을 1~100자로 입력해 주세요.');
