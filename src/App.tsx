@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArrowLeft, ArrowRight, BookOpenText, ChevronLeft, CircleHelp, Download, FilePenLine, FolderOpen, Home, Layers3, LayoutDashboard, Lightbulb, Menu, Network, Plus, Settings2, Sparkles, Upload, X } from 'lucide-react';
 import Workspace, { type Section } from './Workspace';
+import ProjectEditGate from './ProjectEditGate';
 import GlobalWorkspace, { type GlobalSection } from './GlobalWorkspace';
 import { downloadWorkspacePackage, downloadProjectPackage, restorePackage } from './backupZip';
 import { db, createProject, restoreBackup, duplicateProject, deleteProject, downloadBackup, restoreDeletedProject, DIFFICULTIES, type Project } from './data';
@@ -97,7 +98,7 @@ export default function App(){
    <p className="privacy-caption">🔒 작업 내용은 별도 서버로 전송되지 않고, 이 브라우저에 저장됩니다. 중요한 원고와 첨부파일은 ZIP으로 정기 백업하세요. ZIP은 별도 보관 장소에 저장해야 안전합니다.</p>
   </main>}
  </div>;
- return <div className="app-shell">
+ return <ProjectEditGate key={project.id} projectId={project.id} projectTitle={project.title} onGoHome={goHome}><div className="app-shell">
   <aside className={'sidebar'+(drawer?' open':'')}>
    <div className="sidebar-top"><button className="logo-button" onClick={goHome}><Logo/></button><button className="sidebar-close" onClick={()=>setDrawer(false)} aria-label="메뉴 닫기"><X size={20}/></button></div>
    <button className="current-project" onClick={goHome}><FolderOpen size={19}/><span><small>현재 프로젝트</small><strong>{project.title}</strong></span><ChevronLeft size={16}/></button>
@@ -115,5 +116,5 @@ export default function App(){
   <div className="app-main"><header className="topbar"><button className="mobile-menu" onClick={()=>setDrawer(true)} aria-label="메뉴 열기"><Menu size={23}/></button><div className="breadcrumbs"><button onClick={goHome}>프로젝트</button><span>/</span><strong>{nav.find(x=>x.key===section)?.title}</strong></div><div className="topbar-actions"><span className="save-state"><span className="status-dot"/> 이 기기의 작업 공간</span><button className="icon-button" title="원고 편집기로 이동" onClick={()=>setSection('manuscript')}><BookOpenText size={19}/></button><button className="icon-button" title="설정" onClick={()=>setSection('settings')}><Settings2 size={19}/></button></div></header>
   <Workspace key={project.id} project={project} section={section} setSection={setSection} goHome={goHome} openProject={openProject} onOpenGlobalThemes={()=>openGlobal('themes')}/>
   </div>
- </div>;
+ </div></ProjectEditGate>;
 }
