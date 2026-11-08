@@ -114,7 +114,7 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
  const restored:Record<string,Record<string,unknown>[]>={};
  for(const name of collections){
   restored[name]=b.data[name].map(row=>{
-   const entry={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
+   const entry:Record<string,unknown>={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
    for(const key of ['questionId','eventId','sourceId','targetId'])if(entry[key])entry[key]=mapId(entry[key]);
    if(entry.nextIds!==undefined){
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
