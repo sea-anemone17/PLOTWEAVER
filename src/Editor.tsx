@@ -72,7 +72,7 @@ function paragraphs(nodes:JSONContent[],level=0,includePrivate=true):Paragraph[]
  }
  return result;
 }
-export async function exportDocx(projectId:string,title:string,settings:boolean|ExportProfile){
+export async function buildDocxBlob(projectId:string,title:string,settings:boolean|ExportProfile):Promise<Blob>{
  await flushProjectEdits(projectId);
  const profile:ExportProfile=typeof settings==='boolean'?profilePreset(projectId,settings?'gm':'player'):settings;
  validateExportProfile(profile);
@@ -135,7 +135,11 @@ export async function exportDocx(projectId:string,title:string,settings:boolean|
   styles:{default:{document:{run:{font:profile.fontFamily,size:profile.fontSize*2}}}},
   creator:'PLOTWEAVER',title
  });
- const blob=await Packer.toBlob(document);
+ return Packer.toBlob(document);
+}
+export async function exportDocx(projectId:string,title:string,settings:boolean|ExportProfile){
+ const profile=typeof settings==='boolean'?profilePreset(projectId,settings?'gm':'player'):settings;
+ const blob=await buildDocxBlob(projectId,title,profile);
  downloadBlob(blob,title.replace(/[\\/:*?"<>|]/g,'_')+' - '+profile.name.replace(/[\\/:*?"<>|]/g,'_')+'.docx');
 }
 type PanelTab='outline'|'overview'|'characters'|'information'|'narrative';
