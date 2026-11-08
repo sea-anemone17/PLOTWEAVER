@@ -10,6 +10,7 @@ import ProjectThemes from './ProjectThemes';
 import HandoutLibrary from './HandoutLibrary';
 import ExportProfiles from './ExportProfiles';
 import RecoveryHistory from './RecoveryHistory';
+import {guardedProjectWrite} from './projectLease';
 import {downloadProjectPackage} from './backupZip';
 
 type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'themes'|'handouts'|'export'|'recovery'|'settings';
@@ -66,29 +67,37 @@ export default function Workspace({project,section,setSection,goHome,openProject
   const data:Record<string,any>={...fresh(id),...defaults,...initial,...v,updatedAt:now()};
   if(table==='scenes'){data.order=initial?.order??scenes.length;data.stage=data.stage||'발단';data.nextIds=(data.nextIds||[]).filter((x:string)=>x!==data.id);}
   if(table==='events')data.order=initial?.order??events.length;
-  await db.table(table).put(data);
-  if(table==='hypotheses'&&v.status==='채택'&&data.questionId)await db.questions.update(data.questionId,{status:'해결',updatedAt:now()});
-  await touch(id);
+  await guardedProjectWrite(id,[db.table(table),db.questions],async()=>{
+   await db.table(table).put(data);
+   if(table==='hypotheses'&&v.status==='채택'&&data.questionId)await db.questions.update(data.questionId,{status:'해결',updatedAt:now()});
+   await touch(id);
+  });
  }
  async function deleteDialog(){
   if(!dialog||typeof dialog.initial?.id!=='string')return;
   const recordId=dialog.initial.id;
-  if(dialog.table==='scenes'){
-   await db.scenes.update(recordId,{deletedAt:now(),updatedAt:now()});
-   if(manuscriptScene===recordId)setManuscriptScene('');
-  }else await db.table(dialog.table).delete(recordId);
-  await touch(id);
+  await guardedProjectWrite(id,[db.table(dialog.table)],async()=>{
+   if(dialog.table==='scenes')await db.scenes.update(recordId,{deletedAt:now(),updatedAt:now()});
+   else await db.table(dialog.table).delete(recordId);
+   await touch(id);
+  });
+  if(dialog.table==='scenes'&&manuscriptScene===recordId)setManuscriptScene('');
  }
  async function promote(idea:Idea){
   const s={...fresh(id),title:idea.title||'아이디어 기반 장면',stage:'전개',purpose:'',body:idea.body,entry:'',information:'',actions:'',outcome:'',eventId:'',nextIds:[],order:scenes.length};
-  await db.scenes.add(s);
-  await db.relations.add({...fresh(id),sourceId:idea.id,targetId:s.id,type:'장면의 원본 아이디어'});
-  await touch(id);setSection('plot');setPlotType('scenes');
+  await guardedProjectWrite(id,[db.scenes,db.relations],async()=>{
+   await db.scenes.add(s);
+   await db.relations.add({...fresh(id),sourceId:idea.id,targetId:s.id,type:'장면의 원본 아이디어'});
+   await touch(id);
+  });
+  setSection('plot');setPlotType('scenes');
  }
  async function storeAnswer(status:'답변'|'보류'|'해당 없음',advance=false){
   if(!active)return;
-  await db.answers.put({...fresh(id),...found,promptId:active.id,body:answerDraft,status,updatedAt:now()});
-  await touch(id);
+  await guardedProjectWrite(id,[db.answers],async()=>{
+   await db.answers.put({...fresh(id),...found,promptId:active.id,body:answerDraft,status,updatedAt:now()});
+   await touch(id);
+  });
   if(advance)setQuestionIndex(i=>Math.min(i+1,prompts.length-1));
  }
  const answeredCount=answers.filter(a=>a.status==='답변').length;
@@ -102,14 +111,19 @@ export default function Workspace({project,section,setSection,goHome,openProject
  async function swapScene(scene:Scene,direction:-1|1){
   const list=[...scenes].sort((a,b)=>a.order-b.order),idx=list.findIndex(s=>s.id===scene.id),other=list[idx+direction];
   if(!other)return;
-  await db.transaction('rw',db.scenes,async()=>{await db.scenes.update(scene.id,{order:other.order});await db.scenes.update(other.id,{order:scene.order});});
-  await touch(id);
+  await guardedProjectWrite(id,[db.scenes],async()=>{
+   await db.scenes.update(scene.id,{order:other.order});
+   await db.scenes.update(other.id,{order:scene.order});
+   await touch(id);
+  });
  }
  async function chooseHypothesis(h:Hypothesis){
   const group=hypotheses.filter(x=>x.questionId===h.questionId);
-  for(const item of group)await db.hypotheses.update(item.id,{status:item.id===h.id?'채택':'검토',updatedAt:now()});
-  await db.questions.update(h.questionId,{status:'해결',updatedAt:now()});
-  await touch(id);
+  await guardedProjectWrite(id,[db.hypotheses,db.questions],async()=>{
+   for(const item of group)await db.hypotheses.update(item.id,{status:item.id===h.id?'채택':'검토',updatedAt:now()});
+   await db.questions.update(h.questionId,{status:'해결',updatedAt:now()});
+   await touch(id);
+  });
  }
  return <div className="workspace-content">
   {section==='dashboard'&&<>
