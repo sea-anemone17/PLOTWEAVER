@@ -14,9 +14,10 @@ import Color from '@tiptap/extension-color';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } from 'docx';
 import { db, downloadBlob, emptyDocument, now } from './data';
+import { TrpgBlock, TRPG_BLOCK_TYPES, type TrpgBlockKind } from './TrpgBlock';
 
 const extensions=[
- StarterKit, Underline, Link.configure({openOnClick:false}),
+ StarterKit, TrpgBlock, Underline, Link.configure({openOnClick:false}),
  Image.configure({inline:false,allowBase64:true}),
  TableExtension.configure({resizable:true}), TableRowExtension, TableHeaderExtension, TableCellExtension,
  TextAlign.configure({types:['paragraph','heading']}), TextStyle, Color
@@ -47,6 +48,11 @@ function paragraphs(nodes:JSONContent[],level=0):Paragraph[]{
     bullet:level>0?{level:Math.min(level-1,7)}:undefined,
     spacing:{after:100}
    }));
+  }else if(node.type==='trpgBlock'){
+   const kind=node.attrs?.kind as TrpgBlockKind;
+   const label=TRPG_BLOCK_TYPES[kind]||'TRPG 블록';
+   result.push(new Paragraph({text:'['+label+']',spacing:{before:180,after:80}}));
+   result.push(...paragraphs(node.content||[],level));
   }else if(node.type==='image')result.push(new Paragraph({children:[new TextRun('[이미지: 원고 편집기에서 확인]')]}));
   else if(node.content)result.push(...paragraphs(node.content,level));
  }
@@ -155,6 +161,14 @@ export default function ManuscriptEditor({projectId}:Props){
     {action('• 목록',()=>editor.chain().focus().toggleBulletList().run())}
     {action('1. 목록',()=>editor.chain().focus().toggleOrderedList().run())}
     {action('❝',()=>editor.chain().focus().toggleBlockquote().run())}
+    <select className="tool-select" aria-label="TRPG 전용 블록 삽입" value="" onChange={e=>{
+     const kind=e.target.value as TrpgBlockKind;
+     if(!kind)return;
+     editor.chain().focus().insertContent({type:'trpgBlock',attrs:{kind},content:[{type:'paragraph'}]}).run();
+    }}>
+     <option value="">+ TRPG 블록</option>
+     {Object.entries(TRPG_BLOCK_TYPES).map(([kind,label])=><option key={kind} value={kind}>{label}</option>)}
+    </select>
     {action('링크',()=>{const url=prompt('연결할 URL을 입력하세요');if(url)editor.chain().focus().setLink({href:url}).run();})}
     {action('표 +',()=>editor.chain().focus().insertTable({rows:3,cols:3,withHeaderRow:true}).run())}
     {action('셀 병합',()=>editor.chain().focus().mergeCells().run())}
