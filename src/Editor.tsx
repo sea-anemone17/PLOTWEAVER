@@ -58,6 +58,13 @@ function paragraphs(nodes:JSONContent[],level=0,includePrivate=true):Paragraph[]
    const label=TRPG_BLOCK_TYPES[kind]||'TRPG 블록';
    result.push(new Paragraph({text:'['+label+']',spacing:{before:180,after:80}}));
    result.push(...paragraphs(node.content||[],level,includePrivate));
+   const fields=node.attrs?.fields;
+   if(fields&&typeof fields==='object'&&!Array.isArray(fields)){
+    for(const [name,value] of Object.entries(fields as Record<string,unknown>)){
+     if(typeof value!=='string'||!value.trim())continue;
+     result.push(new Paragraph({children:[new TextRun({text:name+': ',bold:true}),new TextRun(value)],spacing:{after:80}}));
+    }
+   }
   }else if(node.type==='image')result.push(new Paragraph({children:[new TextRun('[이미지: 원고 편집기에서 확인]')]}));
   else if(node.content)result.push(...paragraphs(node.content,level,includePrivate));
  }
