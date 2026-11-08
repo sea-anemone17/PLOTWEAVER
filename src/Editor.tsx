@@ -172,6 +172,23 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props
   reader.onload=()=>editor.chain().focus().setImage({src:String(reader.result)}).run();
   reader.readAsDataURL(file);
  };
+ async function addResource(kind:'lore'|'clues'){
+  if(!sceneId||!pick)return;
+  if(links.some(l=>l.resourceId===pick&&l.resourceKind===kind))return;
+  try{
+   await db.sceneLinks.add({...fresh(projectId),sceneId,resourceId:pick,resourceKind:kind,role:''});
+   await touch(projectId);setPick('');
+  }catch(e){alert('자료 연결 실패: '+String(e));}
+ }
+ async function removeResource(id:string){
+  try{await db.sceneLinks.delete(id);await touch(projectId);}
+  catch(e){alert('자료 연결 해제 실패: '+String(e));}
+ }
+ const documentOutline=<>
+  <div className="eyebrow">DOCUMENT OUTLINE</div>
+  <h3>문서 목차</h3>
+  {headings.length?headings.map((h,i)=><button key={i} className="outline-link" style={{paddingLeft:8+(h.level-1)*12}} onClick={()=>{editor.commands.focus(h.pos);editor.view.dom.scrollIntoView({behavior:'smooth',block:'center'});}}>{h.text||'제목 없음'}</button>):<p className="muted small">제목 스타일을 지정하면 여기에 목차가 표시됩니다.</p>}
+ </>;
  return <div className="manuscript-layout">
   <div className="document-area">
    <div className="editor-toolbar">
@@ -213,10 +230,29 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props
    <div className="editor-footer"><span>{status}</span><span>{editor.storage.characterCount?.characters?.()??textContent(editor.getJSON()).length}자 · 원고</span></div>
   </div>
   <aside className="outline">
-   <div className="eyebrow">DOCUMENT OUTLINE</div>
-   <h3>문서 목차</h3>
-   {headings.length?headings.map((h,i)=><button key={i} className="outline-link" style={{paddingLeft:8+(h.level-1)*12}} onClick={()=>{editor.commands.focus(h.pos);editor.view.dom.scrollIntoView({behavior:'smooth',block:'center'});}}>{h.text||'제목 없음'}</button>):<p className="muted small">제목 스타일을 지정하면 여기에 목차가 표시됩니다.</p>}
-   <div className="outline-tip">💡 원고와 설계 카드는 독립적으로 저장됩니다. 카드의 수정이 본문을 덮어쓰지 않습니다.</div>
+   {sceneId?<>
+    <div className="eyebrow">SCENE CONTEXT</div>
+    <h3>장면 자료</h3>
+    <div className="context-tabs" role="tablist" aria-label="장면 자료 탭">
+     {([{key:'overview',label:'개요'},{key:'characters',label:'등장'},{key:'information',label:'정보'},{key:'narrative',label:'서사'}] as const).map(t=><button key={t.key} type="button" role="tab" aria-selected={panel===t.key} className={panel===t.key?'active':''} onClick={()=>{setPanel(t.key);setPick('');}}>{t.label}</button>)}
+    </div>
+    {panel==='overview'&&<div className="context-section"><h4>{scene?.title||'장면 정보'}</h4><p><strong>목적</strong> {scene?.purpose||'아직 작성되지 않았습니다.'}</p><p><strong>진입</strong> {scene?.entry||'미정'}</p><p><strong>결과</strong> {scene?.outcome||'미정'}</p><p className="muted small">장면 정보는 플롯 보드의 장면 편집에서 수정합니다.</p></div>}
+    {panel==='characters'&&<div className="context-section"><h4>등장 NPC</h4>
+      {links.filter(l=>l.resourceKind==='lore').length?links.filter(l=>l.resourceKind==='lore').map(l=><div className="context-link" key={l.id}><span>{lore.find(x=>x.id===l.resourceId)?.title||'연결된 자료가 없습니다'}</span><button type="button" onClick={()=>void removeResource(l.id)}>해제</button></div>):<p className="muted small">이 장면에 연결된 NPC가 없습니다.</p>}
+      <select aria-label="등장 NPC 선택" value={pick} onChange={e=>setPick(e.target.value)}><option value="">NPC 선택…</option>{lore.filter(l=>l.kind==='NPC'&&!links.some(x=>x.resourceId===l.id)).map(l=><option key={l.id} value={l.id}>{l.title}</option>)}</select>
+      <button className="tool" type="button" disabled={!pick} onClick={()=>void addResource('lore')}>NPC 연결</button>
+     </div>}
+    {panel==='information'&&<div className="context-section"><h4>단서·정보</h4>
+      {links.filter(l=>l.resourceKind==='clues').length?links.filter(l=>l.resourceKind==='clues').map(l=><div className="context-link" key={l.id}><span>{clues.find(x=>x.id===l.resourceId)?.title||'연결된 자료가 없습니다'}</span><button type="button" onClick={()=>void removeResource(l.id)}>해제</button></div>):<p className="muted small">이 장면에 연결된 단서가 없습니다.</p>}
+      <select aria-label="단서 선택" value={pick} onChange={e=>setPick(e.target.value)}><option value="">단서 선택…</option>{clues.filter(c=>!links.some(l=>l.resourceId===c.id)).map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select>
+      <button className="tool" type="button" disabled={!pick} onClick={()=>void addResource('clues')}>단서 연결</button>
+     </div>}
+    {panel==='narrative'&&<div className="context-section"><h4>장면 진행</h4>
+      {(scene?.nextIds||[]).length?(scene?.nextIds||[]).map(nextId=><button type="button" className="outline-link" key={nextId} onClick={()=>onSelectScene?.(nextId)}>{projectScenes.find(x=>x.id===nextId)?.title||'연결 대상 없음'} →</button>):<p className="muted small">연결된 다음 장면이 없습니다.</p>}
+      <p className="muted small">진행 관계의 조건·유형 편집은 후속 플롯 관계도 구현에서 제공됩니다.</p>
+     </div>}
+    <details className="context-outline"><summary>현재 장면 목차</summary>{documentOutline}</details>
+   </>:<>{documentOutline}<div className="outline-tip">💡 기존 연속 원고는 보존됩니다. 장면별 원고는 위의 장면 선택 메뉴에서 편집할 수 있습니다.</div></>}
   </aside>
  </div>;
 }
