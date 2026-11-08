@@ -35,11 +35,12 @@ function run(node:JSONContent):TextRun{
  const color=marks.find(m=>m.type==='textStyle')?.attrs?.color;
  return new TextRun({text:node.text||'',bold:has('bold'),italics:has('italic'),underline:has('underline')?{}:undefined,strike:has('strike'),color:typeof color==='string'?color.replace('#',''):undefined});
 }
-function paragraphs(nodes:JSONContent[],level=0):Paragraph[]{
+function paragraphs(nodes:JSONContent[],level=0,includePrivate=true):Paragraph[]{
  const result:Paragraph[]=[];
  for(const node of nodes){
+  if(!includePrivate&&node.type==='trpgBlock'&&node.attrs?.kind==='gm')continue;
   if(node.type==='bulletList'||node.type==='orderedList'){
-   for(const item of node.content||[])result.push(...paragraphs(item.content||[],level+1));
+   for(const item of node.content||[])result.push(...paragraphs(item.content||[],level+1,includePrivate));
    continue;
   }
   if(node.type==='paragraph'||node.type==='heading'||node.type==='listItem'||node.type==='blockquote'){
@@ -56,9 +57,9 @@ function paragraphs(nodes:JSONContent[],level=0):Paragraph[]{
    const kind=node.attrs?.kind as TrpgBlockKind;
    const label=TRPG_BLOCK_TYPES[kind]||'TRPG 블록';
    result.push(new Paragraph({text:'['+label+']',spacing:{before:180,after:80}}));
-   result.push(...paragraphs(node.content||[],level));
+   result.push(...paragraphs(node.content||[],level,includePrivate));
   }else if(node.type==='image')result.push(new Paragraph({children:[new TextRun('[이미지: 원고 편집기에서 확인]')]}));
-  else if(node.content)result.push(...paragraphs(node.content,level));
+  else if(node.content)result.push(...paragraphs(node.content,level,includePrivate));
  }
  return result;
 }
@@ -75,10 +76,10 @@ export async function exportDocx(projectId:string,title:string,includePrivate:bo
    const rows=(node.content||[]).map(row=>new TableRow({children:(row.content||[]).map(cell=>new TableCell({
     columnSpan:cell.attrs?.colspan||1,
     rowSpan:cell.attrs?.rowspan||1,
-    children:paragraphs(cell.content||[]).length?paragraphs(cell.content||[]):[new Paragraph('')]
+    children:paragraphs(cell.content||[],0,includePrivate).length?paragraphs(cell.content||[],0,includePrivate):[new Paragraph('')]
    }))}));
    if(rows.length)children.push(new Table({rows,width:{size:100,type:'pct'}}));
-  }else children.push(...paragraphs([node]));
+  }else children.push(...paragraphs([node],0,includePrivate));
  }
  };
  if(sceneDocs.length){
