@@ -78,7 +78,7 @@ export default function App(){
    <div className="landing-eyebrow">✦ YOUR CREATIVE WORKSPACE</div><h1>모든 이야기는<br/><em>한 줄의 생각</em>에서 시작됩니다.</h1>
    <p className="landing-sub">소재를 수집하고, 인과를 발견하고, 플레이 가능한 장면으로 엮어 보세요.<br/>PLOTWEAVER는 작가 대신 결정하지 않습니다.</p>
    <div className="landing-actions"><Button onClick={()=>setWizard(true)}><Plus size={18}/> 새 프로젝트 만들기</Button>
-    <Button variant="soft" onClick={()=>void downloadWorkspacePackage().catch(e=>alert('전체 작업 공간 백업 실패: '+String(e)))}><Download size={17}/> 전체 작업 공간 ZIP 백업</Button>
+    <Button variant="soft" onClick={()=>void downloadWorkspacePackage().catch(e=>alert('전체 작업 공간 백업 실패: '+String(e)))}><Download size={17}/> 활성 작업 공간 ZIP 백업</Button>
     <label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'JSON·ZIP 백업 복원'}<input type="file" hidden accept=".json,.zip,application/json,application/zip" disabled={importing} onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
    <section className="research-entry-home" aria-label="전역 연구 공간">
      <button onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><strong>아이디어 정원</strong><span>계층형 메모 · 마인드맵</span></button>
