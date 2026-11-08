@@ -5,6 +5,7 @@ import { db, fresh, now, touch, STAGES, IDEA_CATEGORIES, IDEA_STATUSES, LORE_KIN
 import { PROMPTS } from './prompts';
 import { Button, Card, Empty, Header, ModalEditor, Pill, type Field } from './UI';
 import ManuscriptEditor, { exportDocx } from './Editor';
+import PlotGraph from './PlotGraph';
 
 type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'settings';
 type Editable='ideas'|'events'|'scenes'|'questions'|'hypotheses'|'lore'|'clues';
@@ -19,6 +20,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const events=useLiveQuery(()=>db.events.where('projectId').equals(id).toArray(),[id],[]);
  const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(id).filter(scene=>!scene.deletedAt).toArray(),[id],[]);
  const trashedScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(id).filter(scene=>!!scene.deletedAt).toArray(),[id],[]);
+ const plotEdges=useLiveQuery(()=>db.plotEdges.where('projectId').equals(id).toArray(),[id],[]);
  const questions=useLiveQuery(()=>db.questions.where('projectId').equals(id).toArray(),[id],[]);
  const hypotheses=useLiveQuery(()=>db.hypotheses.where('projectId').equals(id).toArray(),[id],[]);
  const lore=useLiveQuery(()=>db.lore.where('projectId').equals(id).toArray(),[id],[]);
@@ -30,7 +32,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const [ideaStatus,setIdeaStatus]=useState('전체');
  const [plotType,setPlotType]=useState<'scenes'|'events'>('scenes');
  const [manuscriptScene,setManuscriptScene]=useState('');
- const [plotView,setPlotView]=useState<'board'|'timeline'>('board');
+ const [plotView,setPlotView]=useState<'board'|'timeline'|'graph'>('board');
  const [archiveType,setArchiveType]=useState<'lore'|'clues'>('lore');
  const [selectedQuestion,setSelectedQuestion]=useState<string|null>(null);
  const [questionIndex,setQuestionIndex]=useState(0);
@@ -43,7 +45,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const fields={
   ideas:[field('title','아이디어 제목'),field('body','자유 메모','textarea'),field('category','분류','select',option(IDEA_CATEGORIES)),field('status','상태','select',option(IDEA_STATUSES)),field('tags','태그 (쉼표로 구분)')],
   events:[field('title','사건명'),field('body','발생한 일','textarea'),field('when','발생 시점 (정렬하려면 YYYY-MM-DD 권장)'),field('cause','원인','textarea'),field('result','결과','textarea')],
-  scenes:[field('title','장면명'),field('stage','진행 단계','select',option(STAGES)),field('purpose','장면의 목적','textarea'),field('body','진행 내용','textarea'),field('entry','진입 조건'),field('information','발견 가능한 정보','textarea'),field('actions','가능한 PC 행동','textarea'),field('outcome','선택에 따른 결과','textarea'),field('eventId','연결할 실제 사건','select',events.map(e=>({value:e.id,label:e.title}))),field('nextIds','도달 가능한 후속 장면 (복수 선택)','multi',scenes.map(s=>({value:s.id,label:s.title})))],
+  scenes:[field('title','장면명'),field('stage','진행 단계','select',option(STAGES)),field('purpose','장면의 목적','textarea'),field('body','진행 내용','textarea'),field('entry','진입 조건'),field('information','발견 가능한 정보','textarea'),field('actions','가능한 PC 행동','textarea'),field('outcome','선택에 따른 결과','textarea'),field('eventId','연결할 실제 사건','select',events.map(e=>({value:e.id,label:e.title})))],
   questions:[field('title','아직 설명되지 않은 질문'),field('context','발생 배경','textarea'),field('importance','중요도','select',option(['높음','보통','낮음'])),field('status','해결 상태','select',option(['미해결','검토 중','해결','보류']))],
   hypotheses:[field('body','가설 내용','textarea'),field('evidence','근거','textarea'),field('effect','서사적 효과','textarea'),field('conflict','다른 설정과의 충돌','textarea'),field('status','상태','select',option(['검토','채택','보류','폐기']))],
   lore:[field('title','자료명'),field('body','세부 내용','textarea'),field('kind','종류','select',option(LORE_KINDS)),field('private','GM 전용 정보','checkbox')],
@@ -129,10 +131,10 @@ export default function Workspace({project,section,setSection,goHome,openProject
   </>}
   {section==='plot'&&<>
    <Header eyebrow="PLOT BOARD" title="플롯 보드" description="사건이 발생한 시간과 플레이어가 경험하는 순서를 별도로 관리합니다." action={()=>edit(plotType,undefined,plotType==='scenes'?{title:'',stage:'발단',nextIds:[]}:{title:''})} actionText={plotType==='scenes'?'+ 새 장면':'+ 새 사건'}/>
-   <div className="tab-bar"><button className={plotType==='scenes'?'selected':''} onClick={()=>setPlotType('scenes')}>플레이 진행 · 장면 {scenes.length}</button><button className={plotType==='events'?'selected':''} onClick={()=>setPlotType('events')}>실제 사건 · 연대기 {events.length}</button><span className="grow"/><button className={plotView==='board'?'selected':''} onClick={()=>setPlotView('board')}>단계별</button><button className={plotView==='timeline'?'selected':''} onClick={()=>setPlotView('timeline')}>목록</button></div>
-   {plotType==='scenes'?(scenes.length?<div className={plotView==='board'?'plot-board':'stack'}>{(plotView==='board'?stages:['전체']).map(stage=><div className="plot-column" key={stage}><div className="column-head"><span>{stage}</span><small>{scenes.filter(s=>stage==='전체'||s.stage===stage).length} scenes</small></div>{[...scenes].filter(s=>stage==='전체'||s.stage===stage).sort((a,b)=>a.order-b.order).map(s=><Card key={s.id} title={s.title} body={s.purpose||s.body} meta={<Pill>{s.stage}</Pill>} onClick={()=>edit('scenes',s)} footer={<><button title="위로 이동" className="tiny-button" onClick={()=>void swapScene(s,-1)}><ArrowUp size={14}/></button><button title="아래로 이동" className="tiny-button" onClick={()=>void swapScene(s,1)}><ArrowDown size={14}/></button><span>{s.nextIds.length?'다음: '+s.nextIds.map(next=>scenes.find(x=>x.id===next)?.title||'알 수 없음').join(' · '):'후속 장면 미지정'}</span></>}/>)}</div>)}</div>:<Empty title="플레이 진행을 설계해 보세요" description="장면은 여러 후속 장면에 연결할 수 있습니다." action={()=>edit('scenes',undefined,{stage:'발단',nextIds:[]})}/>):
+   <div className="tab-bar"><button className={plotType==='scenes'?'selected':''} onClick={()=>setPlotType('scenes')}>플레이 진행 · 장면 {scenes.length}</button><button className={plotType==='events'?'selected':''} onClick={()=>setPlotType('events')}>실제 사건 · 연대기 {events.length}</button><span className="grow"/><button className={plotView==='board'?'selected':''} onClick={()=>setPlotView('board')}>단계별</button><button className={plotView==='timeline'?'selected':''} onClick={()=>setPlotView('timeline')}>목록</button>{plotType==='scenes'&&<button className={plotView==='graph'?'selected':''} onClick={()=>setPlotView('graph')}>관계도</button>}</div>
+   {plotType==='scenes'?(scenes.length?(plotView==='graph'?<PlotGraph projectId={id} scenes={scenes} edges={plotEdges} onEditScene={scene=>edit('scenes',scene)} onWriteScene={sceneId=>{setManuscriptScene(sceneId);setSection('manuscript');}}/>:<div className={plotView==='board'?'plot-board':'stack'}>{(plotView==='board'?stages:['전체']).map(stage=><div className="plot-column" key={stage}><div className="column-head"><span>{stage}</span><small>{scenes.filter(s=>stage==='전체'||s.stage===stage).length} scenes</small></div>{[...scenes].filter(s=>stage==='전체'||s.stage===stage).sort((a,b)=>a.order-b.order).map(s=><Card key={s.id} title={s.title} body={s.purpose||s.body} meta={<Pill>{s.stage}</Pill>} onClick={()=>edit('scenes',s)} footer={<><button title="위로 이동" className="tiny-button" onClick={()=>void swapScene(s,-1)}><ArrowUp size={14}/></button><button title="아래로 이동" className="tiny-button" onClick={()=>void swapScene(s,1)}><ArrowDown size={14}/></button><span>{plotEdges.some(edge=>edge.fromSceneId===s.id)?'다음: '+plotEdges.filter(edge=>edge.fromSceneId===s.id).map(edge=>edge.toSceneId?(scenes.find(x=>x.id===edge.toSceneId)?.title||'복구 대기'):'미정').join(' · '):'후속 장면 미지정'}</span></>}/>)}</div>)}</div>):<Empty title="플레이 진행을 설계해 보세요" description="장면은 여러 후속 장면에 연결할 수 있습니다." action={()=>edit('scenes',undefined,{stage:'발단',nextIds:[]})}/>):
     (events.length?<div className="timeline">{[...events].sort((a,b)=>plotView==='timeline'?(a.when||'').localeCompare(b.when||''):a.order-b.order).map((e,i)=><div className="timeline-item" key={e.id}><span className="timeline-dot">{i+1}</span><Card title={e.title} body={e.body} meta={<Pill>{e.when||'시점 미정'}</Pill>} onClick={()=>edit('events',e)} footer={<span>{e.cause&&'원인: '+e.cause}</span>}/></div>)}</div>:<Empty title="아직 기록된 사건이 없습니다" description="플레이 시작 이전에 일어난 사건도 등록할 수 있습니다." action={()=>edit('events')}/>)}
-   <p className="hint">✦ 장면의 후속 경로는 장면 편집에서 복수로 선택합니다. 어느 한 경로만 강제하지 않습니다.</p>
+   <p className="hint">✦ 장면 연결은 관계도에서 추가·수정합니다. 플레이 진행 경로와 장면 목록의 정렬 순서는 독립적으로 유지됩니다.</p>
   </>}
   {section==='questions'&&<>
    <Header eyebrow="QUESTION LAB" title="의문 해결실" description="설명되지 않는 부분을 질문으로 보관하고 가능한 가설을 비교합니다." action={()=>edit('questions',undefined,{status:'미해결',importance:'보통'})} actionText="+ 의문 등록"/>
@@ -157,7 +159,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
     </label>
     <span className="muted small">장면별 원고는 독립적으로 저장합니다. 기존 원고는 지워지지 않습니다.</span>
    </div>
-   <ManuscriptEditor key={id+':'+manuscriptScene} projectId={id} sceneId={scenes.some(scene=>scene.id===manuscriptScene)?manuscriptScene:undefined} onSelectScene={setManuscriptScene}/>
+   <ManuscriptEditor key={id+':'+manuscriptScene} projectId={id} sceneId={scenes.some(scene=>scene.id===manuscriptScene)?manuscriptScene:undefined} onSelectScene={setManuscriptScene} onOpenPlot={()=>{setPlotType('scenes');setPlotView('graph');setSection('plot');}}/>
    <p className="hint">DOCX 출력 시 일부 고급 서식·이미지는 원본과 다르게 표시될 수 있습니다. JSON 프로젝트 백업을 원본으로 보관해 주세요.</p>
   </>}
   {section==='settings'&&<>
