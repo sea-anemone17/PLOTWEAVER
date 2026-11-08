@@ -12,6 +12,8 @@ export type Lore = Base & {title:string;body:string;kind:string;private:boolean}
 export type Clue = Base & {title:string;body:string;truth:string;where:string;condition:string;alternate:string;audience:string};
 export type Answer = Base & {promptId:string;body:string;status:'답변'|'보류'|'해당 없음'};
 export type Manuscript = {projectId:string;content:JSONContent;updatedAt:number};
+export type SceneDocument = {id:string;projectId:string;sceneId:string;content:JSONContent;updatedAt:number};
+export type SceneLink = Base & {sceneId:string;resourceId:string;resourceKind:'lore'|'clues';role:string};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
 export type TrashedProject = {id:string;deletedAt:number;backup:Backup};
 
@@ -20,6 +22,7 @@ export class PlotDB extends Dexie {
  scenes!:Table<Scene,string>;questions!:Table<Question,string>;hypotheses!:Table<Hypothesis,string>;
  lore!:Table<Lore,string>;clues!:Table<Clue,string>;answers!:Table<Answer,string>;
  manuscripts!:Table<Manuscript,string>;relations!:Table<Relation,string>;trash!:Table<TrashedProject,string>;
+ sceneDocs!:Table<SceneDocument,string>;sceneLinks!:Table<SceneLink,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
@@ -27,6 +30,7 @@ export class PlotDB extends Dexie {
  answers:'id,projectId,promptId',manuscripts:'projectId',relations:'id,projectId,sourceId,targetId'
  });
  this.version(2).stores({trash:'id,deletedAt'});
+ this.version(3).stores({sceneDocs:'id,projectId,sceneId',sceneLinks:'id,projectId,sceneId,resourceId'});
  }
 }
 export const db=new PlotDB();
@@ -50,7 +54,7 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
  });
  return p;
 }
-export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations'] as const;
+export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks'] as const;
 export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null};
 
 // Snapshot all project records in one transaction so a backup cannot mix different edit states.
@@ -82,7 +86,7 @@ export function validateBackup(text:string):Backup{
  const ids=new Set<string>();
  let count=0;
  for(const name of collections){
-  const rows=b.data[name];
+  const rows=b.data[name]||(name==='sceneDocs'||name==='sceneLinks'?[]:undefined);
   if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
   count+=rows.length;
   if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
@@ -102,7 +106,7 @@ export function validateBackup(text:string):Backup{
 export async function restoreBackup(text:string,duplicate=false):Promise<Project>{
  const b=validateBackup(text);
  const id=uid(),map=new Map<string,string>([[b.project.id,id]]);
- for(const name of collections)for(const row of b.data[name]){
+ for(const name of collections)for(const row of b.data[name]||[]){
   const oldId=(row as {id:string}).id;
   map.set(oldId,uid());
  }
@@ -113,9 +117,9 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
  };
  const restored:Record<string,Record<string,unknown>[]>={};
  for(const name of collections){
-  restored[name]=b.data[name].map(row=>{
+  restored[name]=(b.data[name]||[]).map(row=>{
    const entry:Record<string,unknown>={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
-   for(const key of ['questionId','eventId','sourceId','targetId'])if(entry[key])entry[key]=mapId(entry[key]);
+   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId'])if(entry[key])entry[key]=mapId(entry[key]);
    if(entry.nextIds!==undefined){
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
     entry.nextIds=entry.nextIds.map(mapId);
