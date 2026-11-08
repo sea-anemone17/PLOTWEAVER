@@ -47,6 +47,18 @@ describe('DOCX export profiles',()=>{
   expect(xml).toContain('출력하면 안 되는 정보');
   expect(xml).toContain('비밀 핸드아웃 내용');
  });
+ it('exports only scene IDs explicitly selected in a profile',async()=>{
+  const project=await scenario();
+  const first=(await db.scenes.where('projectId').equals(project.id).toArray())[0];
+  const second={...fresh(project.id),title:'두 번째 장면',purpose:'',body:'',entry:'',information:'',actions:'',outcome:'',nextIds:[],eventId:'',order:1,stage:'전개'};
+  await db.scenes.add(second);
+  await db.sceneDocs.add({id:crypto.randomUUID(),projectId:project.id,sceneId:second.id,updatedAt:Date.now(),
+   content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'선택하지 않은 장면'}]}]}});
+  const options={...profilePreset(project.id,'player'),sceneIds:[first.id],includeHandouts:false};
+  const xml=await xmlOf(await buildDocxBlob(project.id,project.title,options));
+  expect(xml).toContain('플레이어에게 공개될 문장');
+  expect(xml).not.toContain('선택하지 않은 장면');
+ });
  it('does not silently include scenes and handouts excluded by a profile',async()=>{
   const project=await scenario();
   await db.manuscripts.put({projectId:project.id,updatedAt:Date.now(),content:{type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'기존 연속 원고'}]}]}});
