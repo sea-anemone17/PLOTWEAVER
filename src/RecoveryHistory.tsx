@@ -50,7 +50,7 @@ export default function RecoveryHistory({projectId,onOpenManuscript}:Props){
   <div className="recovery-layout">
    <aside className="recovery-list">
     {list.map(r=><button type="button" key={r.id} className={selected?.id===r.id?'selected':''} onClick={()=>setSelectedId(r.id)}>
-     <small>{r.kind==='auto'?'자동 기록':r.kind==='named'?'사용자 보존':'복원 직전 안전 기록'}</small>
+     <small>{r.kind==='auto'?'자동 기록':r.kind==='named'?'사용자 보존':r.kind==='emergency'?'미저장 초안 긴급 보존':'복원 직전 안전 기록'}</small>
      <strong>{r.label}</strong>
      <span>{new Date(r.createdAt).toLocaleString('ko-KR')}</span>
     </button>)}
