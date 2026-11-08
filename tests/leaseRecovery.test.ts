@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
 import {beforeEach,afterAll,describe,expect,it} from 'vitest';
 import {db,createProject,emptyDocument,fresh,makeBackup,restoreBackup,deleteProject,type Scene} from '../src/data';
+import type {JSONContent} from '@tiptap/react';
 import {acquireProjectLease,assertProjectCanChange,clearOwnedLease,LEASE_DURATION_MS,releaseProjectLease,renewProjectLease,setOwnedLease} from '../src/projectLease';
 import {createNamedCheckpoint,persistManuscript,restoreRecoveryRecord} from '../src/recovery';
 
 const doc=(value:string)=>({type:'doc',content:[{type:'paragraph',content:[{type:'text',text:value}]}]});
-const firstText=(value:{content?:{content?:{text?:string}[]}[]}[]})=>value.content?.[0]?.content?.[0]?.text;
+const firstText=(value:JSONContent)=>value.content?.[0]?.content?.[0]?.text;
 beforeEach(async()=>{db.close();await db.delete();await db.open();});
 afterAll(()=>db.close());
 async function sample(){
