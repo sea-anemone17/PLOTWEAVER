@@ -103,7 +103,7 @@ export async function buildDocxBlob(projectId:string,title:string,settings:boole
  if(profile.includeScenes){
   const docs=new Map(sceneDocs.map(d=>[d.sceneId,d]));
   for(const scene of scenes.sort((a,b)=>a.order-b.order)){
-   if(profile.sceneIds?.length&&!profile.sceneIds.includes(scene.id))continue;
+   if(profile.sceneIds&&!profile.sceneIds.includes(scene.id))continue;
    const document=docs.get(scene.id);
    if(!document)continue;
    children.push(new Paragraph({text:scene.title,heading:HeadingLevel.HEADING_1}));
