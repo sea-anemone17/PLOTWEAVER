@@ -3,13 +3,18 @@
  * Multiple scene editors can have outstanding writes during navigation.
  */
 type Flusher=()=>Promise<void>;
-const flushers=new Map<string,Flusher>();
+const flushers=new Map<string,Set<Flusher>>();
 const writes=new Map<string,Set<Promise<unknown>>>();
 const failed=new Set<string>();
 
 export function registerEditorFlusher(projectId:string,fn:Flusher):()=>void{
- flushers.set(projectId,fn);
- return ()=>{if(flushers.get(projectId)===fn)flushers.delete(projectId);};
+ const group=flushers.get(projectId)||new Set<Flusher>();
+ group.add(fn);flushers.set(projectId,group);
+ return ()=>{
+  const active=flushers.get(projectId);
+  active?.delete(fn);
+  if(active?.size===0)flushers.delete(projectId);
+ };
 }
 
 export function trackEditorWrite(projectId:string,write:Promise<unknown>){
@@ -25,8 +30,8 @@ export function trackEditorWrite(projectId:string,write:Promise<unknown>){
 }
 
 export async function flushProjectEdits(projectId:string){
- const flush=flushers.get(projectId);
- if(flush)await flush();
+ const activeFlushers=[...(flushers.get(projectId)||[])];
+ if(activeFlushers.length)await Promise.all(activeFlushers.map(flush=>flush()));
  const active=[...(writes.get(projectId)||[])];
  if(active.length)await Promise.all(active);
  if(failed.has(projectId))throw Error('원고의 미저장 변경 사항이 있어 백업 또는 출력을 진행할 수 없습니다.');
