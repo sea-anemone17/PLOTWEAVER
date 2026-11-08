@@ -4,7 +4,7 @@ import JSZip from 'jszip';
 import {db,createProject,emptyDocument,fresh,now,downloadBackup,type Asset} from '../src/data';
 import {buildProjectPackage,buildWorkspacePackage,restorePackage} from '../src/backupZip';
 import {addExportProfile,profilePreset,validateExportProfile} from '../src/exportProfiles';
-import {addGlobalIdea} from '../src/researchData';
+import {addGlobalIdea,createTheme,saveThemeRevision,pinThemeRevision} from '../src/researchData';
 
 beforeEach(async()=>{db.close();await db.delete();await db.open();});
 afterAll(()=>db.close());
@@ -57,6 +57,10 @@ describe('ZIP backup and handouts',()=>{
   const {project}=await makeProjectWithAttachment();
   const idea=await addGlobalIdea(null,'전체 백업 검증');
   await addExportProfile(project.id,'player');
+  const theme=await createTheme();
+  await db.themes.update(theme.id,{title:'해결하지 못한 질문',claim:'선택에는 책임이 따른다'});
+  const revision=await saveThemeRevision(theme.id,'결말 완성');
+  await pinThemeRevision(project.id,revision.id);
   const archive=await buildWorkspacePackage();
   const results=await restorePackage(archive);
   expect(results).toHaveLength(1);
@@ -64,6 +68,11 @@ describe('ZIP backup and handouts',()=>{
   const copy=results[0].id;
   expect(await db.exportProfiles.where('projectId').equals(copy).count()).toBe(1);
   expect(await db.assets.where('projectId').equals(copy).count()).toBe(1);
+  const pin=(await db.projectThemes.where('projectId').equals(copy).toArray())[0];
+  expect(pin.pinned.claim).toBe('선택에는 책임이 따른다');
+  expect(pin.revisionId).not.toBe(revision.id);
+  expect((await db.themeRevisions.get(pin.revisionId))?.id).toBe(pin.revisionId);
+  expect(pin.themeId).not.toBe(theme.id);
   const ideas=await db.globalIdeas.toArray();
   expect(ideas.filter(i=>i.title===idea.title)).toHaveLength(2);
  });
