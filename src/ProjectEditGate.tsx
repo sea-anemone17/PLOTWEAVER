@@ -1,4 +1,4 @@
-import {useEffect,useState,type ReactNode} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {AlertTriangle,BookOpenText,FolderOpen,RefreshCw,ShieldCheck} from 'lucide-react';
 import {db} from './data';
@@ -33,10 +33,15 @@ export default function ProjectEditGate({projectId,projectTitle,onGoHome,childre
  const [attempt,setAttempt]=useState(0);
  const [state,setState]=useState<State>('checking');
  const [message,setMessage]=useState('');
+ // React StrictMode re-runs effects without unmounting the actual component.
+ // Use a stable token and defer cleanup until a genuine final unmount.
+ const tokenRef=useRef(crypto.randomUUID());
+ const generation=useRef(0);
  useEffect(()=>{
   let cancelled=false;
   let interval:ReturnType<typeof setInterval>|null=null;
-  const token=crypto.randomUUID();
+  const token=tokenRef.current;
+  const currentGeneration=++generation.current;
   setState('checking');setMessage('');
   const lose=(reason:string)=>{
    if(cancelled)return;
@@ -48,10 +53,7 @@ export default function ProjectEditGate({projectId,projectTitle,onGoHome,childre
   const start=async()=>{
    try{
     const acquired=await acquireProjectLease(projectId,token);
-    if(cancelled){
-     if(acquired)await releaseProjectLease(projectId,token);
-     return;
-    }
+    if(cancelled)return;
     if(!acquired){setState('locked');setMessage('다른 브라우저 탭이 이 프로젝트를 편집 중입니다.');return;}
     setOwnedLease(projectId,token);
     setState('editing');
@@ -74,13 +76,17 @@ export default function ProjectEditGate({projectId,projectTitle,onGoHome,childre
    cancelled=true;
    cleanupVisible();
    if(interval)clearInterval(interval);
-   if(ownedLeaseToken(projectId)===token){
-    // Finish any pending debounced writes while the lease is still valid.
-    void flushProjectEdits(projectId).catch(()=>undefined).finally(()=>{
-     clearOwnedLease(projectId,token);
-     void releaseProjectLease(projectId,token).catch(()=>undefined);
-    });
-   }
+   // StrictMode immediately starts the effect again. Don't delete the lease
+   // in that case, or the second mount may start spuriously locked.
+   setTimeout(()=>{
+    if(generation.current!==currentGeneration)return;
+    if(ownedLeaseToken(projectId)===token){
+     void flushProjectEdits(projectId).catch(()=>undefined).finally(()=>{
+      clearOwnedLease(projectId,token);
+      void releaseProjectLease(projectId,token).catch(()=>undefined);
+     });
+    }else void releaseProjectLease(projectId,token).catch(()=>undefined);
+   },150);
   };
  },[projectId,attempt]);
  if(state!=='editing')return <main className="lease-screen">
