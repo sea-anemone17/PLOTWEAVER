@@ -4,6 +4,7 @@ import {Download,FilePlus,Trash2} from 'lucide-react';
 import {db,now,type ExportProfile} from './data';
 import {profilePreset,addExportProfile,updateExportProfile,FONT_OPTIONS,type ExportPreset} from './exportProfiles';
 import {exportDocx} from './Editor';
+import {guardedProjectWrite} from './projectLease';
 import {Button,Header} from './UI';
 
 type Props={projectId:string;title:string};
@@ -43,7 +44,7 @@ export default function ExportProfiles({projectId,title}:Props){
  }
  async function remove(){
   if(!current||!confirm('이 출력 프로필을 삭제하시겠습니까? 원고는 삭제되지 않습니다.'))return;
-  try{await db.exportProfiles.delete(current.id);setSelectedId('');setDraft(null);}catch(e){setError(String(e));}
+  try{await guardedProjectWrite(projectId,[db.exportProfiles],async()=>{await db.exportProfiles.delete(current.id);});setSelectedId('');setDraft(null);}catch(e){setError(String(e));}
  }
  const includedHandouts=texts.filter(t=>t.visibility==='player'||(config?.includePrivate&&t.visibility==='gm'));
  const charCount=legacy?.content?.content?.length||0;
