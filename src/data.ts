@@ -15,6 +15,9 @@ export type Answer = Base & {promptId:string;body:string;status:'답변'|'보류
 export type Manuscript = {projectId:string;content:JSONContent;updatedAt:number};
 export type SceneDocument = {id:string;projectId:string;sceneId:string;content:JSONContent;updatedAt:number};
 export type SceneLink = Base & {sceneId:string;resourceId:string;resourceKind:'lore'|'clues';role:string};
+export type PlotEdgeType='normal'|'conditional'|'choice'|'return'|'optional';
+export type PlotEdge = Base & {fromSceneId:string;toSceneId:string;type:PlotEdgeType;label:string;condition:string;note:string};
+export type PlotLayout = Base & {sceneId:string;x:number;y:number};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
 export type TrashedProject = {id:string;deletedAt:number;backup:Backup};
 
@@ -24,6 +27,7 @@ export class PlotDB extends Dexie {
  lore!:Table<Lore,string>;clues!:Table<Clue,string>;answers!:Table<Answer,string>;
  manuscripts!:Table<Manuscript,string>;relations!:Table<Relation,string>;trash!:Table<TrashedProject,string>;
  sceneDocs!:Table<SceneDocument,string>;sceneLinks!:Table<SceneLink,string>;
+ plotEdges!:Table<PlotEdge,string>;plotLayouts!:Table<PlotLayout,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
@@ -32,6 +36,21 @@ export class PlotDB extends Dexie {
  });
  this.version(2).stores({trash:'id,deletedAt'});
  this.version(3).stores({sceneDocs:'id,projectId,sceneId',sceneLinks:'id,projectId,sceneId,resourceId'});
+ // Upgrade legacy nextIds once; new graph and mini map then share plotEdges as the source of truth.
+ this.version(4).stores({plotEdges:'id,projectId,fromSceneId,toSceneId',plotLayouts:'id,projectId,&sceneId'})
+  .upgrade(async tx=>{
+   const scenes=await tx.table('scenes').toArray() as Scene[];
+   const existing=new Map(scenes.map(s=>[s.id,s.projectId]));
+   const stamp=Date.now();
+   const edges:PlotEdge[]=[];
+   for(const scene of scenes){
+    for(const target of new Set(scene.nextIds||[])){
+     if(target===scene.id||existing.get(target)!==scene.projectId)continue;
+     edges.push({id:crypto.randomUUID(),projectId:scene.projectId,fromSceneId:scene.id,toSceneId:target,type:'normal',label:'',condition:'',note:'',createdAt:stamp,updatedAt:stamp});
+    }
+   }
+   if(edges.length)await tx.table('plotEdges').bulkAdd(edges);
+  });
  }
 }
 export const db=new PlotDB();
@@ -55,7 +74,7 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
  });
  return p;
 }
-export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks'] as const;
+export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts'] as const;
 export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null};
 
 // Snapshot all project records in one transaction so a backup cannot mix different edit states.
@@ -88,7 +107,7 @@ export function validateBackup(text:string):Backup{
  const ids=new Set<string>();
  let count=0;
  for(const name of collections){
-  const rows=b.data[name]||(name==='sceneDocs'||name==='sceneLinks'?[]:undefined);
+  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts'].includes(name)?[]:undefined);
   if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
   count+=rows.length;
   if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
@@ -121,13 +140,23 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
  for(const name of collections){
   restored[name]=(b.data[name]||[]).map(row=>{
    const entry:Record<string,unknown>={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
-   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId'])if(entry[key])entry[key]=mapId(entry[key]);
+   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId'])if(entry[key])entry[key]=mapId(entry[key]);
    if(entry.nextIds!==undefined){
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
     entry.nextIds=entry.nextIds.map(mapId);
    }
    return entry;
   });
+ }
+ // v0.1/v1 legacy backup: materialize scene.nextIds as edges after mapping IDs.
+ if(!Array.isArray(b.data.plotEdges)){
+  const sceneIds=new Set(restored.scenes.map(s=>s.id));
+  for(const scene of restored.scenes){
+   for(const target of new Set(Array.isArray(scene.nextIds)?scene.nextIds:[])){
+    if(typeof target!=='string'||!sceneIds.has(target)||target===scene.id)continue;
+    restored.plotEdges.push({...fresh(id),fromSceneId:scene.id,toSceneId:target,type:'normal',label:'',condition:'',note:''});
+   }
+  }
  }
  const project:Project={...b.project,id,title:b.project.title+(duplicate?' (복제본)':' (복원)'),createdAt:now(),updatedAt:now()};
  await db.transaction('rw',db.tables,async()=>{
