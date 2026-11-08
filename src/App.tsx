@@ -14,6 +14,7 @@ const nav:{key:Section;title:string;icon:typeof Home;hint:string}[]=[
  {key:'questions',title:'의문 해결실',icon:CircleHelp,hint:'가설과 검토'},
  {key:'archive',title:'진상·설정 자료실',icon:Archive,hint:'세계관과 단서'},
  {key:'manuscript',title:'원고 편집기',icon:FilePenLine,hint:'본문 집필'},
+ {key:'themes',title:'프로젝트 주제의식',icon:Layers3,hint:'서사 요소와 주제 적용'},
  {key:'settings',title:'프로젝트 설정',icon:Settings2,hint:'백업과 내보내기'}
 ];
 const stages=['아직 소재가 없음','소재나 설정이 있음','임시 플롯이 있음','원고 작성 중','기존 작품을 수정 중'];
