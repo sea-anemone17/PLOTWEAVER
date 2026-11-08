@@ -3,7 +3,7 @@ import {beforeEach,afterAll,describe,expect,it} from 'vitest';
 import {db,createProject,emptyDocument,fresh,makeBackup,restoreBackup,deleteProject,type Scene} from '../src/data';
 import type {JSONContent} from '@tiptap/react';
 import {acquireProjectLease,assertProjectCanChange,clearOwnedLease,guardedProjectWrite,LEASE_DURATION_MS,releaseProjectLease,renewProjectLease,setOwnedLease} from '../src/projectLease';
-import {createNamedCheckpoint,persistManuscript,restoreRecoveryRecord} from '../src/recovery';
+import {createNamedCheckpoint,persistManuscript,preserveEmergencyDraft,restoreRecoveryRecord} from '../src/recovery';
 
 const doc=(value:string)=>({type:'doc',content:[{type:'paragraph',content:[{type:'text',text:value}]}]});
 const firstText=(value:JSONContent)=>value.content?.[0]?.content?.[0]?.text;
@@ -77,6 +77,22 @@ describe('manuscript recovery records',()=>{
   expect(firstText(safe!.content)).toBe('세 번째 원고');
   await restoreRecoveryRecord(p.id,safe!.id);
   expect(firstText((await db.manuscripts.get(p.id))!.content)).toBe('세 번째 원고');
+ });
+ it('keeps unsaved work from a stale tab in an isolated emergency draft',async()=>{
+  const p=await sample();
+  await acquireProjectLease(p.id,'active-tab');
+  setOwnedLease(p.id,'active-tab');
+  await persistManuscript(p.id,undefined,doc('현재 저장된 원고'));
+  clearOwnedLease(p.id,'active-tab');
+  await expect(persistManuscript(p.id,undefined,doc('다른 탭의 미저장 문장'))).rejects.toThrow('편집');
+  const emergency=await preserveEmergencyDraft(p.id,undefined,doc('다른 탭의 미저장 문장'));
+  expect(emergency.kind).toBe('emergency');
+  expect(firstText((await db.manuscripts.get(p.id))!.content)).toBe('현재 저장된 원고');
+  expect(firstText((await db.recoveryRecords.get(emergency.id))!.content)).toBe('다른 탭의 미저장 문장');
+  setOwnedLease(p.id,'active-tab');
+  await restoreRecoveryRecord(p.id,emergency.id);
+  expect(firstText((await db.manuscripts.get(p.id))!.content)).toBe('다른 탭의 미저장 문장');
+  clearOwnedLease(p.id,'active-tab');
  });
  it('preserves scene checkpoint references in imported project backups',async()=>{
   const p=await sample();
