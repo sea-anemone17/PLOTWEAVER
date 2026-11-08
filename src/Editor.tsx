@@ -226,7 +226,7 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   catch(e){alert('자료 연결 해제 실패: '+String(e));}
  }
  function updateStructuredFields(fields:Record<string,string>){
-  if(!activeBlock)return;
+  if(!activeBlock||!editor)return;
   const node=editor.state.doc.nodeAt(activeBlock.pos);
   if(!node||node.type.name!=='trpgBlock')return;
   editor.view.dispatch(editor.state.tr.setNodeMarkup(activeBlock.pos,undefined,{...node.attrs,fields}));
