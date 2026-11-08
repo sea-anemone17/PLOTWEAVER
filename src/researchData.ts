@@ -1,4 +1,4 @@
-import {db,emptyDocument,fresh,now,uid,type GlobalIdea,type KnowledgeKind,type ThemeCardKind,type ThemeSnapshot,type ProjectTheme,type ThemeRelation} from './data';
+import {db,emptyDocument,fresh,now,uid,type GlobalIdea,type GlobalIdeaLink,type KnowledgeKind,type ThemeCardKind,type ThemeSnapshot,type ProjectTheme,type ThemeRelation} from './data';
 import {flushProjectEdits} from './saveBarrier';
 
 export async function addGlobalIdea(parentId:string|null=null,title='새 아이디어'){
