@@ -84,6 +84,7 @@ describe('manuscript recovery records',()=>{
   const p=await sample();
   await persistManuscript(p.id,undefined,doc('첫 원고'));
   const named=await createNamedCheckpoint(p.id,undefined,'중요한 보존 지점');
+  await db.recoveryRecords.where('projectId').equals(p.id).filter(x=>x.kind==='auto').delete();
   for(let i=0;i<12;i++)await db.recoveryRecords.add({...fresh(p.id),docKey:'legacy',kind:'auto',label:'과거 기록',content:emptyDocument,createdAt:1000+i});
   await persistManuscript(p.id,undefined,doc('새 원고'));
   const records=await db.recoveryRecords.where('projectId').equals(p.id).toArray();
