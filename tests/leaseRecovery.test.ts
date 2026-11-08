@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import {beforeEach,afterAll,describe,expect,it} from 'vitest';
 import {db,createProject,emptyDocument,fresh,makeBackup,restoreBackup,deleteProject,type Scene} from '../src/data';
 import type {JSONContent} from '@tiptap/react';
-import {acquireProjectLease,assertProjectCanChange,clearOwnedLease,LEASE_DURATION_MS,releaseProjectLease,renewProjectLease,setOwnedLease} from '../src/projectLease';
+import {acquireProjectLease,assertProjectCanChange,clearOwnedLease,guardedProjectWrite,LEASE_DURATION_MS,releaseProjectLease,renewProjectLease,setOwnedLease} from '../src/projectLease';
 import {createNamedCheckpoint,persistManuscript,restoreRecoveryRecord} from '../src/recovery';
 
 const doc=(value:string)=>({type:'doc',content:[{type:'paragraph',content:[{type:'text',text:value}]}]});
@@ -25,6 +25,20 @@ describe('exclusive project edit lease',()=>{
   expect((await db.editLeases.get(p.id))?.ownerId).toBe(a);
   await releaseProjectLease(p.id,a);
   expect(await acquireProjectLease(p.id,b)).toBe(true);
+ });
+ it('fences non-manuscript project mutations inside the same transaction',async()=>{
+  const p=await sample();
+  await acquireProjectLease(p.id,'owner');
+  await expect(guardedProjectWrite(p.id,[db.ideas],async()=>{
+   await db.ideas.add({...fresh(p.id),title:'침입한 탭',body:'',status:'미분류',category:'소재',tags:''});
+  })).rejects.toThrow('편집');
+  expect(await db.ideas.where('projectId').equals(p.id).count()).toBe(0);
+  setOwnedLease(p.id,'owner');
+  await guardedProjectWrite(p.id,[db.ideas],async()=>{
+   await db.ideas.add({...fresh(p.id),title:'정상 탭',body:'',status:'미분류',category:'소재',tags:''});
+  });
+  expect((await db.ideas.where('projectId').equals(p.id).toArray())[0].title).toBe('정상 탭');
+  clearOwnedLease(p.id,'owner');
  });
  it('refuses a stale or foreign writer and prevents cross-tab deletion',async()=>{
   const p=await sample();
