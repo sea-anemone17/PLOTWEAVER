@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArrowLeft, ArrowRight, BookOpenText, ChevronLeft, CircleHelp, Download, FilePenLine, FolderOpen, Home, Layers3, LayoutDashboard, Lightbulb, Menu, Network, Plus, Settings2, Sparkles, Upload, X } from 'lucide-react';
 import Workspace, { type Section } from './Workspace';
 import GlobalWorkspace, { type GlobalSection } from './GlobalWorkspace';
+import { downloadWorkspacePackage, downloadProjectPackage, restorePackage } from './backupZip';
 import { db, createProject, restoreBackup, duplicateProject, deleteProject, downloadBackup, restoreDeletedProject, DIFFICULTIES, type Project } from './data';
 import { Button, Pill } from './UI';
 
@@ -15,6 +16,8 @@ const nav:{key:Section;title:string;icon:typeof Home;hint:string}[]=[
  {key:'archive',title:'진상·설정 자료실',icon:Archive,hint:'세계관과 단서'},
  {key:'manuscript',title:'원고 편집기',icon:FilePenLine,hint:'본문 집필'},
  {key:'themes',title:'프로젝트 주제의식',icon:Layers3,hint:'서사 요소와 주제 적용'},
+ {key:'handouts',title:'핸드아웃',icon:BookOpenText,hint:'텍스트 및 PDF·이미지'},
+ {key:'export',title:'출력 프로필',icon:Download,hint:'DOCX 서식과 포함 범위'},
  {key:'settings',title:'프로젝트 설정',icon:Settings2,hint:'백업과 내보내기'}
 ];
 const stages=['아직 소재가 없음','소재나 설정이 있음','임시 플롯이 있음','원고 작성 중','기존 작품을 수정 중'];
@@ -55,7 +58,16 @@ export default function App(){
  function openGlobal(page:GlobalSection){localStorage.removeItem('plotweaver.active');setProjectId('');setGlobalSection(page);setWizard(false);setDrawer(false);}
  async function importFile(file?:File){
   if(!file)return;setImporting(true);
-  try{const raw=await file.text();const p=await restoreBackup(raw);openProject(p.id);}
+  try{
+   if(file.name.toLowerCase().endsWith('.zip')||file.type==='application/zip'){
+    const projects=await restorePackage(file);
+    if(projects.length)openProject(projects[0].id);
+    else goHome();
+    alert('ZIP 백업 복원 완료: 프로젝트 '+projects.length+'개. 기존 데이터는 덮어쓰지 않았습니다.');
+   }else{
+    const raw=await file.text();const p=await restoreBackup(raw);openProject(p.id);
+   }
+  }
   catch(e){alert('백업을 복원할 수 없습니다: '+String(e));}
   finally{setImporting(false);}
  }
@@ -65,7 +77,9 @@ export default function App(){
   {wizard?<Wizard onCreate={p=>openProject(p.id)} onCancel={()=>setWizard(false)}/>:<main className="landing-main">
    <div className="landing-eyebrow">✦ YOUR CREATIVE WORKSPACE</div><h1>모든 이야기는<br/><em>한 줄의 생각</em>에서 시작됩니다.</h1>
    <p className="landing-sub">소재를 수집하고, 인과를 발견하고, 플레이 가능한 장면으로 엮어 보세요.<br/>PLOTWEAVER는 작가 대신 결정하지 않습니다.</p>
-   <div className="landing-actions"><Button onClick={()=>setWizard(true)}><Plus size={18}/> 새 프로젝트 만들기</Button><label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'백업 파일 복원'}<input type="file" hidden accept=".json,application/json" onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
+   <div className="landing-actions"><Button onClick={()=>setWizard(true)}><Plus size={18}/> 새 프로젝트 만들기</Button>
+    <Button variant="soft" onClick={()=>void downloadWorkspacePackage().catch(e=>alert('전체 작업 공간 백업 실패: '+String(e)))}><Download size={17}/> 전체 작업 공간 ZIP 백업</Button>
+    <label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'JSON·ZIP 백업 복원'}<input type="file" hidden accept=".json,.zip,application/json,application/zip" disabled={importing} onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
    <section className="research-entry-home" aria-label="전역 연구 공간">
      <button onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><strong>아이디어 정원</strong><span>계층형 메모 · 마인드맵</span></button>
      <button onClick={()=>openGlobal('knowledge')}><BookOpenText size={19}/><strong>지식 보관함</strong><span>사상 · 문학 · 개념 연결</span></button>
@@ -74,13 +88,13 @@ export default function App(){
    <section className="projects-section"><div className="section-caption"><h2>내 프로젝트</h2><span>{projects.length}개 · 이 기기에 저장됨</span></div>
     {projects.length?<div className="project-grid">{projects.map(p=><article className="project-card" key={p.id}>
      <div className="project-deco">✳</div><Pill>{p.kind}</Pill><h3>{p.title}</h3><p>{p.stage}</p><div className="project-bottom"><small>{new Date(p.updatedAt).toLocaleDateString('ko-KR')} 수정</small><button className="open-project" onClick={()=>openProject(p.id)}>열기 <ArrowRight size={17}/></button></div>
-     <div className="project-tools"><button onClick={()=>void downloadBackup(p.id).catch(e=>alert('백업 실패: '+String(e)))} title="JSON 백업"><Download size={16}/></button><button title="프로젝트 복제" onClick={()=>void duplicateProject(p.id).then(copy=>openProject(copy.id))}><Layers3 size={16}/></button><button title="삭제" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 나중에 복원할 수 있습니다.'))void deleteProject(p.id).catch(e=>alert('삭제 실패: '+String(e)));}}><X size={16}/></button></div>
+     <div className="project-tools"><button onClick={()=>void downloadProjectPackage(p.id).catch(e=>alert('ZIP 백업 실패: '+String(e)))} title="첨부파일 포함 ZIP 백업"><Download size={16}/></button><button title="프로젝트 복제" onClick={()=>void duplicateProject(p.id).then(copy=>openProject(copy.id))}><Layers3 size={16}/></button><button title="삭제" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 나중에 복원할 수 있습니다.'))void deleteProject(p.id).catch(e=>alert('삭제 실패: '+String(e)));}}><X size={16}/></button></div>
     </article>)}</div>:<div className="empty-home"><div className="empty-home-icon"><BookOpenText size={36}/></div><h3>아직 프로젝트가 없습니다</h3><p>머릿속의 이야기를 이곳에서 시작해 보세요.</p><Button onClick={()=>setWizard(true)}>첫 프로젝트 시작하기 <ArrowRight size={16}/></Button></div>}
    </section>
    {trashed.length>0&&<section className="projects-section" aria-label="휴지통"><div className="section-caption"><h2>휴지통</h2><span>{trashed.length}개 · 이 기기에 저장됨</span></div>
     <div className="project-grid">{trashed.map(t=><article className="project-card" key={t.id}><Pill>삭제된 프로젝트</Pill><h3>{t.backup.project.title}</h3><p>{new Date(t.deletedAt).toLocaleString('ko-KR')} 이동</p><Button variant="soft" onClick={()=>void restoreDeletedProject(t.id).then(p=>openProject(p.id)).catch(e=>alert('복원 실패: '+String(e)))}>프로젝트 복원</Button></article>)}</div>
    </section>}
-   <p className="privacy-caption">🔒 작업 내용은 별도 서버로 전송되지 않고, 이 브라우저에 저장됩니다. 중요한 원고는 JSON으로 정기 백업하세요.</p>
+   <p className="privacy-caption">🔒 작업 내용은 별도 서버로 전송되지 않고, 이 브라우저에 저장됩니다. 중요한 원고와 첨부파일은 ZIP으로 정기 백업하세요. ZIP은 별도 보관 장소에 저장해야 안전합니다.</p>
   </main>}
  </div>;
  return <div className="app-shell">
