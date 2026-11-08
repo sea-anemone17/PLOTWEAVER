@@ -106,6 +106,7 @@ export default function ManuscriptEditor({projectId}:Props){
   const savingGeneration=generation.current;
   queue.current=queue.current.catch(()=>undefined).then(async()=>{
    await db.transaction('rw',db.manuscripts,db.projects,async()=>{
+    if(!await db.projects.get(projectId))throw Error('삭제된 프로젝트에는 원고를 저장할 수 없습니다.');
     await db.manuscripts.put({projectId,content:snapshot,updatedAt:now()});
     await db.projects.update(projectId,{updatedAt:now()});
    });
