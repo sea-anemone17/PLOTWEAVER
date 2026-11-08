@@ -19,7 +19,7 @@ import PlotMiniGraph from './PlotMiniGraph';
 import { createPlotEdge, EDGE_TYPES, deletePlotEdge } from './plotEdges';
 import type { PlotEdgeType } from './data';
 import { flushProjectEdits, registerEditorFlusher, trackEditorWrite } from './saveBarrier';
-import {persistManuscript} from './recovery';
+import {persistManuscript,preserveEmergencyDraft} from './recovery';
 import { profilePreset, validateExportProfile } from './exportProfiles';
 import type { ExportProfile } from './data';
 
@@ -194,9 +194,14 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
   queue.current=queue.current.catch(()=>undefined).then(async()=>{
    await persistManuscript(projectId,sceneId,snapshot);
    if(savingGeneration===generation.current)setStatus('이 기기에 저장됨');
-  }).catch((error:unknown)=>{
+  }).catch(async(error:unknown)=>{
    if(!pending.current)pending.current=snapshot;
-   setStatus('⚠ 저장 실패 — 변경 내용이 아직 저장되지 않았습니다');
+   let preserved=false;
+   try{await preserveEmergencyDraft(projectId,sceneId,snapshot);preserved=true;}
+   catch{/* IndexedDB may be unavailable or full. Never claim draft recovery succeeded. */}
+   setStatus(preserved
+    ?'⚠ 정상 저장 실패 · 별도 긴급 복구 기록에 보존됨'
+    :'⚠ 저장 실패 · 긴급 보존도 실패했습니다. 원고를 다른 곳에 복사해 주세요.');
    throw error;
   });
   trackEditorWrite(projectId,queue.current);
