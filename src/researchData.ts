@@ -1,6 +1,7 @@
 import {db,emptyDocument,fresh,now,uid,type GlobalIdea,type GlobalIdeaLink,type KnowledgeKind,type ThemeCardKind,type ThemeSnapshot,type ProjectTheme,type ThemeRelation} from './data';
 import type {JSONContent} from '@tiptap/react';
 import {flushProjectEdits} from './saveBarrier';
+import {guardedProjectWrite} from './projectLease';
 
 export async function addGlobalIdea(parentId:string|null=null,title='새 아이디어'){
  const existing=parentId?await db.globalIdeas.get(parentId):null;
@@ -87,7 +88,7 @@ export async function saveThemeRevision(themeId:string,label:string){
  });
 }
 export async function pinThemeRevision(projectId:string,revisionId:string):Promise<ProjectTheme>{
- return db.transaction('rw',db.projects,db.themeRevisions,db.projectThemes,async()=>{
+ return guardedProjectWrite(projectId,[db.themeRevisions,db.projectThemes],async()=>{
   if(!await db.projects.get(projectId))throw Error('프로젝트가 없습니다.');
   const revision=await db.themeRevisions.get(revisionId);
   if(!revision)throw Error('보존된 주제의식 개정본을 찾을 수 없습니다.');
@@ -98,7 +99,9 @@ export async function pinThemeRevision(projectId:string,revisionId:string):Promi
  });
 }
 export async function switchPinnedRevision(projectThemeId:string,revisionId:string){
- await db.transaction('rw',db.projectThemes,db.themeRevisions,async()=>{
+ const saved=await db.projectThemes.get(projectThemeId);
+ if(!saved)throw Error('프로젝트 주제의식이 없습니다.');
+ await guardedProjectWrite(saved.projectId,[db.projectThemes,db.themeRevisions],async()=>{
   const current=await db.projectThemes.get(projectThemeId);
   if(!current)throw Error('프로젝트 주제의식이 없습니다.');
   const revision=await db.themeRevisions.get(revisionId);
@@ -109,6 +112,7 @@ export async function switchPinnedRevision(projectThemeId:string,revisionId:stri
 export async function addThemeRelation(projectThemeId:string,targetKind:ThemeRelation['targetKind'],targetId:string,note=''){
  const ref=await db.projectThemes.get(projectThemeId);
  if(!ref)throw Error('프로젝트의 주제 적용을 찾을 수 없습니다.');
+ return guardedProjectWrite(ref.projectId,[db.projectThemes,db.scenes,db.lore,db.clues,db.plotEdges,db.themeRelations],async()=>{
  let target:{projectId:string;deletedAt?:number}|undefined;
  if(targetKind==='scene')target=await db.scenes.get(targetId);
  else if(targetKind==='npc')target=await db.lore.get(targetId);
@@ -119,6 +123,7 @@ export async function addThemeRelation(projectThemeId:string,targetKind:ThemeRel
  if(existing)return existing;
  const relation={...fresh(ref.projectId),projectThemeId,targetKind,targetId,note};
  await db.themeRelations.add(relation);return relation;
+ });
 }
 
 export const RESEARCH_TABLES=['globalIdeas','globalIdeaLinks','knowledgeNotes','knowledgeLinks','themes','themeCards','themeRevisions'] as const;
