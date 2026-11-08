@@ -107,7 +107,11 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const jump=(s:Section)=>setSection(s);
  const basicCard=(title:string,text:string,action:()=>void)=><button className="action-tile" onClick={action}><h3>{title}</h3><p>{text}</p><ArrowRight size={17}/></button>;
  const totals=[['아이디어',ideas.length],['사건',events.length],['장면',scenes.length],['미해결 의문',questions.filter(q=>q.status!=='해결').length],['설계 답변',answeredCount]];
- const recommendation=recommend(project);
+ async function updateProjectSettings(patch:Partial<Project>){
+  try{await guardedProjectWrite(id,[],async()=>{await db.projects.update(id,{...patch,updatedAt:now()});});}
+  catch(e){alert('프로젝트 설정 저장 실패: '+String(e));}
+ }
+  const recommendation=recommend(project);
  async function swapScene(scene:Scene,direction:-1|1){
   const list=[...scenes].sort((a,b)=>a.order-b.order),idx=list.findIndex(s=>s.id===scene.id),other=list[idx+direction];
   if(!other)return;
@@ -132,7 +136,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
    <div className="stats-grid">{totals.map(([name,n])=><div className="stat" key={name}><strong>{n}</strong><span>{name}</span></div>)}</div>
    <div className="section-caption"><h2>어디서 시작할까요?</h2><span>자유롭게 이동할 수 있습니다</span></div>
    <div className="tile-grid">{basicCard('아이디어 모으기','떠오른 생각을 분류 없이 적어 두세요.',()=>jump('ideas'))}{basicCard('서사 질문 받기','작품의 뼈대를 만드는 질문을 따라갑니다.',()=>jump('workshop'))}{basicCard('장면 설계하기','플레이 순서와 사건 순서를 구분해 보세요.',()=>jump('plot'))}{basicCard('원고 바로 쓰기','구상 없이 본문부터 시작해도 됩니다.',()=>jump('manuscript'))}</div>
-   <div className="note-panel"><label className="eyebrow" htmlFor="next-task">내가 정한 다음 작업</label><input id="next-task" key={id+'next'+project.nextTask} defaultValue={project.nextTask} placeholder="예: HO3 개인 장면의 갈등 쓰기" onBlur={async e=>{await db.projects.update(id,{nextTask:e.target.value,updatedAt:now()});}}/><span>입력 후 다른 곳을 누르면 자동 저장됩니다.</span></div>
+   <div className="note-panel"><label className="eyebrow" htmlFor="next-task">내가 정한 다음 작업</label><input id="next-task" key={id+'next'+project.nextTask} defaultValue={project.nextTask} placeholder="예: HO3 개인 장면의 갈등 쓰기" onBlur={e=>{void updateProjectSettings({nextTask:e.target.value});}}/><span>입력 후 다른 곳을 누르면 자동 저장됩니다.</span></div>
   </>}
   {section==='ideas'&&<>
    <Header eyebrow="IDEA INBOX" title="아이디어 보관함" description="아직 완성되지 않은 생각도 그대로 남겨 두세요." action={()=>edit('ideas',undefined,{title:'',body:'',category:'소재',status:'미분류',tags:''})} actionText="+ 아이디어"/>
@@ -187,7 +191,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
   </>}
   {section==='settings'&&<>
    <Header eyebrow="PROJECT SETTINGS" title="프로젝트 설정" description="저장, 복원, 출력 및 프로젝트 정보를 관리합니다."/>
-   <div className="settings-grid"><section className="settings-panel"><h2>기본 정보</h2><label className="field"><span>프로젝트 제목</span><input key={id+'title'} defaultValue={project.title} onBlur={e=>{void db.projects.update(id,{title:e.target.value.trim()||'제목 미정',updatedAt:now()});}}/></label><label className="field"><span>작품 유형</span><select value={project.kind} onChange={e=>void db.projects.update(id,{kind:e.target.value,updatedAt:now()})}>{['TRPG 시나리오','소설','기타'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>작업 방식</span><select value={project.mode} onChange={e=>void db.projects.update(id,{mode:e.target.value,updatedAt:now()})}>{['안내형','자유형','혼합형'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>서사 모델</span><select value={project.model} onChange={e=>void db.projects.update(id,{model:e.target.value,updatedAt:now()})}><option>사건 중심형</option><option>미스터리 역설계형</option></select></label></section>
+   <div className="settings-grid"><section className="settings-panel"><h2>기본 정보</h2><label className="field"><span>프로젝트 제목</span><input key={id+'title'} defaultValue={project.title} onBlur={e=>{void updateProjectSettings({title:e.target.value.trim()||'제목 미정'});}}/></label><label className="field"><span>작품 유형</span><select value={project.kind} onChange={e=>void updateProjectSettings({kind:e.target.value})}>{['TRPG 시나리오','소설','기타'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>작업 방식</span><select value={project.mode} onChange={e=>void updateProjectSettings({mode:e.target.value})}>{['안내형','자유형','혼합형'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field"><span>서사 모델</span><select value={project.model} onChange={e=>void updateProjectSettings({model:e.target.value})}><option>사건 중심형</option><option>미스터리 역설계형</option></select></label></section>
    <section className="settings-panel"><h2>내보내기 · 백업</h2><p className="muted">작업 데이터는 현재 브라우저의 IndexedDB에 보관됩니다. 브라우저 데이터 삭제·기기 변경 전에 반드시 백업하세요.</p><div className="settings-actions"><Button onClick={()=>void downloadProjectPackage(id).catch(e=>alert('ZIP 백업 실패: '+String(e)))}><Download size={16}/> 첨부파일 포함 ZIP 백업</Button>
 <Button variant="soft" onClick={()=>void downloadBackup(id).catch(e=>alert('JSON 백업 실패: '+String(e)))}><Download size={16}/> JSON 내보내기</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,false).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><FileText size={16}/> 원고 DOCX</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,true).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><BookOpen size={16}/> GM 자료 포함 DOCX</Button><Button variant="soft" onClick={()=>setSection('export')}>출력 프로필 관리</Button><Button variant="soft" onClick={()=>setSection('recovery')}>원고 복구 기록</Button></div></section>
    <section className="settings-panel"><h2>프로젝트 관리</h2><p className="muted">복제하면 독립된 새 프로젝트가 생성됩니다. 삭제한 프로젝트는 프로젝트 목록의 휴지통에서 복원할 수 있습니다. 개별 카드 삭제는 아직 복구되지 않습니다.</p><div className="settings-actions"><Button variant="soft" onClick={()=>void duplicateProject(id).then(p=>openProject(p.id)).catch(e=>alert(String(e)))}>프로젝트 복제</Button><Button variant="danger" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 복원할 수 있습니다.'))void deleteProject(id).then(goHome).catch(e=>alert('삭제 실패: '+String(e)));}}><Trash2 size={16}/> 프로젝트 삭제</Button></div></section>
