@@ -61,7 +61,7 @@ describe('shared plot edges',()=>{
   expect(restoredEdges[0].id).not.toBe(original.id);
   expect(restoredScenes.some(s=>s.id===restoredEdges[0].toSceneId)).toBe(true);
   expect(restoredLayouts).toHaveLength(1);
-  expect(restoredLayouts[0].sceneId).toBe(restoredScenes[0].id);
+  expect(restoredLayouts[0].sceneId).toBe(restoredScenes.find(s=>s.title==='도입')?.id);
   expect(restoredLayouts[0].x).toBe(200);
  });
  it('converts the old nextIds from legacy v1 backup into exactly one graph edge',async()=>{
