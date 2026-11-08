@@ -76,6 +76,25 @@ describe('ZIP backup and handouts',()=>{
   const ideas=await db.globalIdeas.toArray();
   expect(ideas.filter(i=>i.title===idea.title)).toHaveLength(2);
  });
+ it('rolls back a full-workspace restore when one project has a broken reference',async()=>{
+  await makeProjectWithAttachment();
+  const second=await createProject({title:'다른 시나리오',kind:'TRPG 시나리오',stage:'원고 작성 중',difficulty:'',mode:'혼합형'},'');
+  const scene={...fresh(second.id),title:'다른 장면',purpose:'',body:'',entry:'',information:'',actions:'',outcome:'',nextIds:[],eventId:'',order:0,stage:'도입'};
+  await db.scenes.add(scene);
+  await addGlobalIdea(null,'원래의 연구 메모');
+  const archive=await buildWorkspacePackage();
+  const zip=await JSZip.loadAsync(await archive.arrayBuffer());
+  const manifest=JSON.parse(await zip.file('manifest.json')!.async('string'));
+  const brokenPath=manifest.projects.find((p:{projectId:string})=>p.projectId===second.id).path;
+  const broken=JSON.parse(await zip.file(brokenPath)!.async('string'));
+  broken.data.scenes[0].nextIds=['no-such-scene'];
+  zip.file(brokenPath,JSON.stringify(broken));
+  const beforeProjects=await db.projects.count();
+  const beforeIdeas=await db.globalIdeas.count();
+  await expect(restorePackage(await zip.generateAsync({type:'blob'}))).rejects.toThrow('참조');
+  expect(await db.projects.count()).toBe(beforeProjects);
+  expect(await db.globalIdeas.count()).toBe(beforeIdeas);
+ });
  it('blocks invalid export-profile parameters before DOCX output',()=>{
   const preset=profilePreset('test','player');
   expect(()=>validateExportProfile(preset)).not.toThrow();
