@@ -13,7 +13,7 @@ import TextStyle from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } from 'docx';
-import { db, downloadBlob, emptyDocument, now } from './data';
+import { db, downloadBlob, emptyDocument, now, fresh, touch } from './data';
 import { TrpgBlock, TRPG_BLOCK_TYPES, type TrpgBlockKind } from './TrpgBlock';
 
 const extensions=[
@@ -60,9 +60,11 @@ function paragraphs(nodes:JSONContent[],level=0):Paragraph[]{
 }
 export async function exportDocx(projectId:string,title:string,includePrivate:boolean){
  const record=await db.manuscripts.get(projectId);
- const nodes=record?.content.content||[];
+ const sceneDocs=await db.sceneDocs.where('projectId').equals(projectId).toArray();
+ const scenes=await db.scenes.where('projectId').equals(projectId).toArray();
  const children:(Paragraph|Table)[]=[];
  children.push(new Paragraph({text:title,heading:HeadingLevel.TITLE,spacing:{after:260}}));
+ const appendNodes=(nodes:JSONContent[])=>{
  for(const node of nodes){
   if(node.type==='table'){
    const rows=(node.content||[]).map(row=>new TableRow({children:(row.content||[]).map(cell=>new TableCell({
@@ -73,6 +75,21 @@ export async function exportDocx(projectId:string,title:string,includePrivate:bo
    if(rows.length)children.push(new Table({rows,width:{size:100,type:'pct'}}));
   }else children.push(...paragraphs([node]));
  }
+ };
+ if(sceneDocs.length){
+  const legacy=record?.content.content||[];
+  if(legacy.some(n=>textContent(n).trim()||n.type==='image'||n.type==='table')){
+   children.push(new Paragraph({text:'기존 연속 원고',heading:HeadingLevel.HEADING_1}));
+   appendNodes(legacy);
+  }
+  const documents=new Map(sceneDocs.map(d=>[d.sceneId,d]));
+  for(const scene of scenes.sort((a,b)=>a.order-b.order)){
+   const document=documents.get(scene.id);
+   if(!document)continue;
+   children.push(new Paragraph({text:scene.title,heading:HeadingLevel.HEADING_1}));
+   appendNodes(document.content.content||[]);
+  }
+ }else appendNodes(record?.content.content||[]);
  if(includePrivate){
   const items=await db.lore.where('projectId').equals(projectId).toArray();
   if(items.length){
@@ -87,9 +104,17 @@ export async function exportDocx(projectId:string,title:string,includePrivate:bo
  const blob=await Packer.toBlob(document);
  downloadBlob(blob,title.replace(/[\\/:*?"<>|]/g,'_')+'.docx');
 }
-type Props={projectId:string};
-export default function ManuscriptEditor({projectId}:Props){
- const record=useLiveQuery(()=>db.manuscripts.get(projectId),[projectId]);
+type PanelTab='outline'|'overview'|'characters'|'information'|'narrative';
+type Props={projectId:string;sceneId?:string;onSelectScene?:(id:string)=>void};
+export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props){
+ const record=useLiveQuery(async()=>sceneId?(await db.sceneDocs.where('sceneId').equals(sceneId).first())??null:(await db.manuscripts.get(projectId))??null,[projectId,sceneId]);
+ const scene=useLiveQuery(()=>sceneId?db.scenes.get(sceneId):undefined,[sceneId]);
+ const projectScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const links=useLiveQuery(()=>sceneId?db.sceneLinks.where('sceneId').equals(sceneId).toArray():[],[sceneId],[]);
+ const [panel,setPanel]=useState<PanelTab>(sceneId?'overview':'outline');
+ const [pick,setPick]=useState('');
  const [status,setStatus]=useState('불러오는 중');
  const [headings,setHeadings]=useState<{text:string;pos:number;level:number}[]>([]);
  const queue=useRef<Promise<unknown>>(Promise.resolve());
@@ -105,9 +130,13 @@ export default function ManuscriptEditor({projectId}:Props){
   pending.current=null;
   const savingGeneration=generation.current;
   queue.current=queue.current.catch(()=>undefined).then(async()=>{
-   await db.transaction('rw',db.manuscripts,db.projects,async()=>{
+   await db.transaction('rw',db.manuscripts,db.sceneDocs,db.scenes,db.projects,async()=>{
     if(!await db.projects.get(projectId))throw Error('삭제된 프로젝트에는 원고를 저장할 수 없습니다.');
-    await db.manuscripts.put({projectId,content:snapshot,updatedAt:now()});
+    if(sceneId){
+     if(!await db.scenes.get(sceneId))throw Error('삭제된 장면에는 원고를 저장할 수 없습니다.');
+     const previous=await db.sceneDocs.where('sceneId').equals(sceneId).first();
+     await db.sceneDocs.put({id:previous?.id||crypto.randomUUID(),sceneId,projectId,content:snapshot,updatedAt:now()});
+    }else await db.manuscripts.put({projectId,content:snapshot,updatedAt:now()});
     await db.projects.update(projectId,{updatedAt:now()});
    });
    if(savingGeneration===generation.current)setStatus('이 기기에 저장됨');
@@ -128,11 +157,12 @@ export default function ManuscriptEditor({projectId}:Props){
    timer.current=setTimeout(flush,450);
    setHeadings(collectHeadings(snapshot));
   }
- },[projectId]);
+ },[projectId,sceneId]);
  useEffect(()=>{
-  if(!editor||!record||loaded.current)return;
-  editor.commands.setContent(record.content,false);
-  loaded.current=true;setStatus('자동 저장됨');setHeadings(collectHeadings(record.content));
+  if(!editor||record===undefined||loaded.current)return;
+  const content=record?.content||emptyDocument;
+  editor.commands.setContent(content,false);
+  loaded.current=true;setStatus(record?'이 기기에 저장됨':'새 장면 원고');setHeadings(collectHeadings(content));
  },[record,editor]);
  if(!editor||record===undefined)return <div className="empty">저장된 원고를 불러오고 있습니다…</div>;
  const action=(label:string,cb:()=>void,active=false)=><button type="button" className={active?'tool active':'tool'} title={label} onClick={cb}>{label}</button>;
