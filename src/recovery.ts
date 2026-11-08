@@ -32,7 +32,7 @@ async function snapshot(projectId:string,key:string,kind:RecoveryRecord['kind'],
 /** Document writes and automatic history are committed atomically. */
 export async function persistManuscript(projectId:string,sceneId:string|undefined,content:JSONContent){
  validateDocument(content);
- await db.transaction('rw',db.projects,db.editLeases,db.scenes,db.sceneDocs,db.manuscripts,db.recoveryRecords,async()=>{
+ await db.transaction('rw',[db.projects,db.editLeases,db.scenes,db.sceneDocs,db.manuscripts,db.recoveryRecords],async()=>{
   await assertProjectLeaseWritable(projectId);
   if(!await db.projects.get(projectId))throw Error('삭제된 프로젝트에는 원고를 저장할 수 없습니다.');
   const previous=await currentDocument(projectId,sceneId);
@@ -55,7 +55,7 @@ export async function createNamedCheckpoint(projectId:string,sceneId:string|unde
  const name=label.trim();
  if(!name||name.length>100)throw Error('복구 지점 이름을 1~100자로 입력해 주세요.');
  await flushProjectEdits(projectId);
- return db.transaction('rw',db.projects,db.editLeases,db.scenes,db.sceneDocs,db.manuscripts,db.recoveryRecords,async()=>{
+ return db.transaction('rw',[db.projects,db.editLeases,db.scenes,db.sceneDocs,db.manuscripts,db.recoveryRecords],async()=>{
   await assertProjectLeaseWritable(projectId);
   if(!await db.projects.get(projectId))throw Error('프로젝트가 없습니다.');
   const document=await currentDocument(projectId,sceneId);
@@ -64,7 +64,7 @@ export async function createNamedCheckpoint(projectId:string,sceneId:string|unde
 }
 export async function restoreRecoveryRecord(projectId:string,recordId:string){
  await flushProjectEdits(projectId);
- return db.transaction('rw',db.projects,db.editLeases,db.scenes,db.sceneDocs,db.manuscripts,db.recoveryRecords,async()=>{
+ return db.transaction('rw',[db.projects,db.editLeases,db.scenes,db.sceneDocs,db.manuscripts,db.recoveryRecords],async()=>{
   await assertProjectLeaseWritable(projectId);
   if(!await db.projects.get(projectId))throw Error('프로젝트가 없습니다.');
   const selected=await db.recoveryRecords.get(recordId);
