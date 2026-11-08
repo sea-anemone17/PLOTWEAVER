@@ -192,5 +192,5 @@ export async function importResearchBackup(text:string){
  await db.transaction('rw',db.tables,async()=>{
   for(const table of RESEARCH_TABLES)if(output[table].length)await db.table(table).bulkAdd(output[table]);
  });
- return {ideas:output.globalIdeas.length,knowledge:output.knowledgeNotes.length,themes:output.themes.length};
+ return {ideas:output.globalIdeas.length,knowledge:output.knowledgeNotes.length,themes:output.themes.length,idMap:Object.fromEntries(ids)};
 }
