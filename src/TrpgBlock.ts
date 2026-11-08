@@ -23,11 +23,14 @@ export const TrpgBlock = Node.create({
  defining:true,
  draggable:true,
  addAttributes(){
-  return {kind:{default:'gm',parseHTML:element=>element.getAttribute('data-trpg-kind')||'gm'}};
+  return {
+   kind:{default:'gm',parseHTML:element=>element.getAttribute('data-trpg-kind')||'gm'},
+   edgeId:{default:null,parseHTML:element=>element.getAttribute('data-plot-edge')||null}
+  };
  },
  parseHTML(){return [{tag:'section[data-trpg-kind]'}];},
  renderHTML({HTMLAttributes}){
-  return ['section',mergeAttributes(HTMLAttributes,{class:'trpg-block','data-trpg-kind':HTMLAttributes.kind}),0];
+  return ['section',mergeAttributes(HTMLAttributes,{class:'trpg-block','data-trpg-kind':HTMLAttributes.kind,'data-plot-edge':HTMLAttributes.edgeId||null}),0];
  },
  addInputRules(){
   return [wrappingInputRule({
