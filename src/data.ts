@@ -23,7 +23,7 @@ export type TrashedProject = {id:string;deletedAt:number;backup:Backup;assets?:A
 export type Visibility='gm'|'player'|'draft';
 export type Asset = Base & {name:string;mime:string;size:number;blob:Blob};
 export type Handout = Base & {title:string;kind:'text'|'file';visibility:Visibility;content:JSONContent;assetId:string|null};
-export type ExportProfile = Base & {name:string;includePrivate:boolean;includeLegacy:boolean;includeScenes:boolean;includeHandouts:boolean;includeGMResources:boolean;fontFamily:string;fontSize:number;pageMargin:number};
+export type ExportProfile = Base & {name:string;includePrivate:boolean;includeLegacy:boolean;includeScenes:boolean;includeHandouts:boolean;includeGMResources:boolean;fontFamily:string;fontSize:number;pageMargin:number;sceneIds?:string[]};
 
 // Global research data is intentionally independent of project-owned v0.1 idea cards.
 export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number;deletedAt?:number};
