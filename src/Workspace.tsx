@@ -54,14 +54,14 @@ export default function Workspace({project,section,setSection,goHome,openProject
  async function saveDialog(v:Record<string,any>){
   if(!dialog)return;
   const {table,initial,defaults}=dialog;
-  const data={...fresh(id),...defaults,...initial,...v,updatedAt:now()};
+  const data:Record<string,any>={...fresh(id),...defaults,...initial,...v,updatedAt:now()};
   if(table==='scenes'){data.order=initial?.order??scenes.length;data.stage=data.stage||'발단';data.nextIds=(data.nextIds||[]).filter((x:string)=>x!==data.id);}
   if(table==='events')data.order=initial?.order??events.length;
   await db.table(table).put(data);
   if(table==='hypotheses'&&v.status==='채택'&&data.questionId)await db.questions.update(data.questionId,{status:'해결',updatedAt:now()});
   await touch(id);
  }
- async function deleteDialog(){if(dialog?.initial?.id){await db.table(dialog.table).delete(dialog.initial.id);await touch(id);}}
+ async function deleteDialog(){if(dialog && typeof dialog.initial?.id === 'string'){await db.table(dialog.table).delete(dialog.initial.id);await touch(id);}}
  async function promote(idea:Idea){
   const s={...fresh(id),title:idea.title||'아이디어 기반 장면',stage:'전개',purpose:'',body:idea.body,entry:'',information:'',actions:'',outcome:'',eventId:'',nextIds:[],order:scenes.length};
   await db.scenes.add(s);

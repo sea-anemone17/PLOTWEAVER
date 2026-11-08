@@ -79,7 +79,7 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
  }
  const mapId=(v:unknown)=>typeof v==='string'?map.get(v)||v:'';
  const project:Project={...b.project,id,title:b.project.title+(duplicate?' (복제본)':' (복원)'),createdAt:now(),updatedAt:now()};
- await db.transaction('rw',...db.tables,async()=>{
+ await db.transaction('rw',db.tables,async()=>{
   await db.projects.add(project);
   for(const name of collections){
    const rows=((b.data||{})[name]||[]) as Record<string,unknown>[];
@@ -97,7 +97,7 @@ export async function restoreBackup(text:string,duplicate=false):Promise<Project
 }
 export async function duplicateProject(id:string){return restoreBackup(JSON.stringify(await makeBackup(id)),true);}
 export async function deleteProject(id:string){
- await db.transaction('rw',...db.tables,async()=>{
+ await db.transaction('rw',db.tables,async()=>{
   for(const name of collections)await db.table(name).where('projectId').equals(id).delete();
   await db.manuscripts.delete(id);await db.projects.delete(id);
  });
