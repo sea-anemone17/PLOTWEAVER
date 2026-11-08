@@ -1,4 +1,5 @@
 import {db,emptyDocument,fresh,now,uid,type GlobalIdea,type GlobalIdeaLink,type KnowledgeKind,type ThemeCardKind,type ThemeSnapshot,type ProjectTheme,type ThemeRelation} from './data';
+import type {JSONContent} from '@tiptap/react';
 import {flushProjectEdits} from './saveBarrier';
 
 export async function addGlobalIdea(parentId:string|null=null,title='새 아이디어'){
@@ -163,11 +164,28 @@ export async function importResearchBackup(text:string){
  const ids=new Map<string,string>();
  for(const table of RESEARCH_TABLES)for(const item of b.data[table] as {id:string}[])ids.set(item.id,uid());
  const remap=(id:string|null|undefined)=>id?(ids.get(id)||(()=>{throw Error('참조가 손상되었습니다.');})()):null;
+ // Internal wiki links are stored in rich text marks, not only in knowledgeLinks.
+ const remapWiki=(node:JSONContent):JSONContent=>({
+  ...node,
+  marks:node.marks?.map(mark=>{
+   const href=mark.attrs?.href;
+   if(mark.type!=='link'||typeof href!=='string'||!href.startsWith('pw://knowledge/'))return mark;
+   const originalId=href.slice('pw://knowledge/'.length);
+   return {...mark,attrs:{...mark.attrs,href:'pw://knowledge/'+(ids.get(originalId)||originalId)}};
+  }),
+  content:node.content?.map(remapWiki)
+ });
  const output:Record<string,Record<string,unknown>[]>={};
  for(const table of RESEARCH_TABLES){
   output[table]=(b.data[table] as Record<string,unknown>[]).map(original=>{
    const item:Record<string,unknown>={...structuredClone(original),id:remap(original.id as string)};
    for(const name of ['parentId','sourceId','targetId','fromId','toId','themeId'])if(typeof item[name]==='string'&&item[name])item[name]=remap(item[name] as string);
+   if((table==='knowledgeNotes'||table==='themes')&&item.content&&typeof item.content==='object')item.content=remapWiki(item.content as JSONContent);
+   if(table==='themes'&&item.prose&&typeof item.prose==='object')item.prose=remapWiki(item.prose as JSONContent);
+   if(table==='themeRevisions'&&item.snapshot&&typeof item.snapshot==='object'){
+    const snapshot=item.snapshot as ThemeSnapshot;
+    item.snapshot={...snapshot,prose:remapWiki(snapshot.prose)};
+   }
    return item;
   });
  }
