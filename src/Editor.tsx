@@ -15,6 +15,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } from 'docx';
 import { db, downloadBlob, emptyDocument, now, fresh, touch } from './data';
 import { TrpgBlock, TRPG_BLOCK_TYPES, type TrpgBlockKind } from './TrpgBlock';
+import { flushProjectEdits, registerEditorFlusher, trackEditorWrite } from './saveBarrier';
 
 const extensions=[
  StarterKit, TrpgBlock, Underline, Link.configure({openOnClick:false}),
@@ -59,6 +60,7 @@ function paragraphs(nodes:JSONContent[],level=0):Paragraph[]{
  return result;
 }
 export async function exportDocx(projectId:string,title:string,includePrivate:boolean){
+ await flushProjectEdits(projectId);
  const record=await db.manuscripts.get(projectId);
  const sceneDocs=await db.sceneDocs.where('projectId').equals(projectId).toArray();
  const scenes=await db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray();
@@ -123,10 +125,10 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props
  const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const loaded=useRef(false);
  // Capture the document at the time of the edit, not when a queued save eventually runs.
- function flush(){
+ function flush():Promise<void>{
   if(timer.current!==null){clearTimeout(timer.current);timer.current=null;}
   const snapshot=pending.current;
-  if(!snapshot)return;
+  if(!snapshot)return queue.current.then(()=>undefined);
   pending.current=null;
   const savingGeneration=generation.current;
   queue.current=queue.current.catch(()=>undefined).then(async()=>{
@@ -140,12 +142,16 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene}:Props
     await db.projects.update(projectId,{updatedAt:now()});
    });
    if(savingGeneration===generation.current)setStatus('이 기기에 저장됨');
-  }).catch(()=>{
+  }).catch((error:unknown)=>{
    if(!pending.current)pending.current=snapshot;
    setStatus('⚠ 저장 실패 — 변경 내용이 아직 저장되지 않았습니다');
+   throw error;
   });
+  trackEditorWrite(projectId,queue.current);
+  return queue.current.then(()=>undefined);
  }
- useEffect(()=>()=>{flush();},[projectId]);
+ useEffect(()=>registerEditorFlusher(projectId,flush),[projectId,sceneId]);
+ useEffect(()=>()=>{void flush().catch(()=>undefined);},[projectId,sceneId]);
  const editor=useEditor({
   extensions,content:emptyDocument,editorProps:{attributes:{class:'document-page',spellcheck:'true'}},
   onUpdate:({editor})=>{
