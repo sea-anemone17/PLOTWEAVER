@@ -6,15 +6,16 @@ import { PROMPTS } from './prompts';
 import { Button, Card, Empty, Header, ModalEditor, Pill, type Field } from './UI';
 import ManuscriptEditor, { exportDocx } from './Editor';
 import PlotGraph from './PlotGraph';
+import ProjectThemes from './ProjectThemes';
 
-type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'settings';
+type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'themes'|'settings';
 type Editable='ideas'|'events'|'scenes'|'questions'|'hypotheses'|'lore'|'clues';
 type Dialog={table:Editable;title:string;fields:Field[];initial?:Record<string,unknown>;defaults?:Record<string,unknown>};
-type Props={project:Project;section:Section;setSection:(s:Section)=>void;goHome:()=>void;openProject:(id:string)=>void};
+type Props={project:Project;section:Section;setSection:(s:Section)=>void;goHome:()=>void;openProject:(id:string)=>void;onOpenGlobalThemes:()=>void};
 const option=(values:string[])=>values.map(value=>({value,label:value}));
 const field=(key:string,label:string,kind:Field['kind']='text',options?:Field['options']):Field=>({key,label,kind,options});
 const fmt=(n:number)=>new Date(n).toLocaleDateString('ko-KR',{year:'numeric',month:'short',day:'numeric'});
-export default function Workspace({project,section,setSection,goHome,openProject}:Props){
+export default function Workspace({project,section,setSection,goHome,openProject,onOpenGlobalThemes}:Props){
  const id=project.id;
  const ideas=useLiveQuery(()=>db.ideas.where('projectId').equals(id).toArray(),[id],[]);
  const events=useLiveQuery(()=>db.events.where('projectId').equals(id).toArray(),[id],[]);
@@ -148,7 +149,8 @@ export default function Workspace({project,section,setSection,goHome,openProject
    {archiveType==='lore'?(lore.length?<div className="card-grid">{lore.map(l=><Card key={l.id} title={l.title} body={l.body} meta={<><Pill>{l.kind}</Pill>{l.private&&<Pill tone="warning">GM 전용</Pill>}</>} onClick={()=>edit('lore',l)}/>)}</div>:<Empty title="세계의 비밀을 정리해 보세요" description="인물·진상·HO·특수 규칙을 한곳에 모읍니다." action={()=>edit('lore',undefined,{kind:'진상',private:true})}/>):
     (clues.length?<div className="card-grid">{clues.map(c=><Card key={c.id} title={c.title} body={c.body} meta={<Pill>{c.audience||'공개 대상 미정'}</Pill>} onClick={()=>edit('clues',c)} footer={<span>{c.where||'발견 장면 미정'} · {c.alternate?'대체 경로 있음':'⚠ 대체 경로 미설정'}</span>}/>)}</div>:<Empty title="단서의 경로를 설계해 보세요" description="중요한 단서에는 대체 발견 경로를 마련할 수 있습니다." action={()=>edit('clues',undefined,{audience:'전체'})}/>)}
   </>}
-  {section==='manuscript'&&<>
+  {section==='themes'&&<ProjectThemes projectId={id} onOpenGlobalThemes={onOpenGlobalThemes}/>}
+   {section==='manuscript'&&<>
    <Header eyebrow="MANUSCRIPT" title="원고 편집기" description="하나의 연속 문서로 집필하고 제목과 목차로 이동합니다." action={()=>void exportDocx(id,project.title,false).catch(e=>alert(String(e)))} actionText="DOCX 다운로드"/>
    <div className="scene-manuscript-picker">
     <label className="field"><span>집필 문서</span>
