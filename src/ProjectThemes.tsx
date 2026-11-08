@@ -4,6 +4,7 @@ import {Link2,BookMarked} from 'lucide-react';
 import {db,now,type ThemeRelation} from './data';
 import {addThemeRelation,switchPinnedRevision} from './researchData';
 import {Button,Empty,Header} from './UI';
+import ResearchTextField from './ResearchTextField';
 
 type Props={projectId:string;onOpenGlobalThemes:()=>void};
 const TARGET_TYPES:{value:ThemeRelation['targetKind'];label:string}[]=[
@@ -53,10 +54,10 @@ export default function ProjectThemes({projectId,onOpenGlobalThemes}:Props){
     <blockquote>{selected.pinned.claim||'핵심 명제 미작성'}</blockquote>
     <h3>고정된 논증 카드</h3>
     {selected.pinned.cards.length?selected.pinned.cards.map(card=><p className="project-pinned-card" key={card.id}><small>{card.kind}</small>{card.text||'내용 미작성'}</p>):<p className="muted small">개정 당시 논증 카드가 없습니다.</p>}
-    <label className="research-control">이 프로젝트에서의 해석·활용 메모
-     <textarea key={selected.id+'notes'} rows={6} defaultValue={selected.notes} placeholder="작품의 갈등·선택·결말을 통해 이 명제를 어떻게 다룰까요?"
-      onBlur={e=>attempt(db.projectThemes.update(selected.id,{notes:e.target.value,updatedAt:now()}))}/>
-    </label>
+    <ResearchTextField key={selected.id+'notes'} id={selected.id+'notes'} saveScope={projectId} rows={6}
+     label="이 프로젝트에서의 해석·활용 메모" value={selected.notes}
+     placeholder="작품의 갈등·선택·결말을 통해 이 명제를 어떻게 다룰까요?"
+     onSave={notes=>db.projectThemes.update(selected.id,{notes,updatedAt:now()})}/>
     <div className="research-fields"><label>고정 개정본 전환
      <select aria-label="고정된 개정본 바꾸기" value={selected.revisionId} onChange={e=>{
       const id=e.target.value;
