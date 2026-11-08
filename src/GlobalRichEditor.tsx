@@ -7,11 +7,11 @@ import {registerEditorFlusher,trackEditorWrite} from './saveBarrier';
 
 type Option={id:string;title:string};
 type Props={
- documentId:string;content:JSONContent;onSave:(value:JSONContent)=>Promise<unknown>;
+ documentId:string;content:JSONContent;onSave:(value:JSONContent)=>Promise<unknown>;saveScope?:string;
  internalNotes?:Option[];onOpenLink?:(id:string)=>void;
 };
 const extensions=[StarterKit,Underline,Link.configure({openOnClick:false})];
-export default function GlobalRichEditor({documentId,content,onSave,internalNotes=[],onOpenLink}:Props){
+export default function GlobalRichEditor({documentId,content,onSave,internalNotes=[],onOpenLink,saveScope='__global__'}:Props){
  const [status,setStatus]=useState('불러오는 중');
  const [query,setQuery]=useState('');
  const [showSuggestions,setShowSuggestions]=useState(false);
@@ -35,10 +35,10 @@ export default function GlobalRichEditor({documentId,content,onSave,internalNote
    setStatus('⚠ 저장 실패 · 변경 내용을 백업하세요');
    throw error;
   });
-  trackEditorWrite('__global__',queue.current);
+  trackEditorWrite(saveScope,queue.current);
   return queue.current.then(()=>undefined);
  }
- useEffect(()=>registerEditorFlusher('__global__',flush),[documentId]);
+ useEffect(()=>registerEditorFlusher(saveScope,flush),[documentId,saveScope]);
  useEffect(()=>()=>{void flush().catch(()=>undefined);},[documentId]);
  const editor=useEditor({
   extensions,
