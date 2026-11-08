@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { JSONContent } from '@tiptap/react';
 import { flushProjectEdits } from './saveBarrier';
+import {assertProjectLeaseWritable} from './projectLease';
 
 export type Project = {id:string;title:string;kind:string;stage:string;difficulty:string;mode:string;model:string;nextTask:string;createdAt:number;updatedAt:number};
 type Base = {id:string;projectId:string;createdAt:number;updatedAt:number};
@@ -199,7 +200,7 @@ export async function restoreBackup(text:string,duplicate=false,sourceAssets:Ass
    }
    // ProseMirror JSON may contain a branch block that refers to a PlotEdge.
    // Remap existing edges; retain dangling IDs so the editor can show a broken-link warning.
-   if(name==='sceneDocs'&&entry.content&&typeof entry.content==='object'){
+   if((name==='sceneDocs'||name==='recoveryRecords')&&entry.content&&typeof entry.content==='object'){
     const remapNode=(node:JSONContent):JSONContent=>({
      ...node,
      attrs:node.attrs?{
@@ -251,6 +252,7 @@ export async function duplicateProject(id:string){
 export async function deleteProject(id:string){
  await flushProjectEdits(id);
  await db.transaction('rw',db.tables,async()=>{
+  await assertProjectLeaseWritable(id);
   const backup=await collectBackup(id);
   const assets=await db.assets.where('projectId').equals(id).toArray();
   await db.trash.put({id,deletedAt:now(),backup,assets});
