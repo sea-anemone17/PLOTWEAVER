@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type { JSONContent } from '@tiptap/react';
+import { flushProjectEdits } from './saveBarrier';
 
 export type Project = {id:string;title:string;kind:string;stage:string;difficulty:string;mode:string;model:string;nextTask:string;createdAt:number;updatedAt:number};
 type Base = {id:string;projectId:string;createdAt:number;updatedAt:number};
@@ -66,6 +67,7 @@ async function collectBackup(id:string):Promise<Backup>{
  return {format:'plotweaver',version:1,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null};
 }
 export async function makeBackup(id:string):Promise<Backup>{
+ await flushProjectEdits(id);
  return db.transaction('r',db.tables,()=>collectBackup(id));
 }
 export function downloadBlob(blob:Blob,name:string){
@@ -139,6 +141,7 @@ export async function duplicateProject(id:string){return restoreBackup(JSON.stri
 
 // The trash entry and removal of live data are atomic; failed deletes never lose the snapshot.
 export async function deleteProject(id:string){
+ await flushProjectEdits(id);
  await db.transaction('rw',db.tables,async()=>{
   const backup=await collectBackup(id);
   await db.trash.put({id,deletedAt:now(),backup});
