@@ -73,7 +73,8 @@ export async function downloadWorkspacePackage(){
 }
 async function parsePackage(file:Blob){
  if(file.size>MAX_ARCHIVE)throw Error('백업 파일이 300MB를 초과합니다.');
- const zip=await JSZip.loadAsync(await file.arrayBuffer(),{checkCRC32:true});
+ // Check the ZIP central directory sizes before decompressing entries; file assets are SHA-256 verified below.
+ const zip=await JSZip.loadAsync(await file.arrayBuffer(),{checkCRC32:false});
  const entries=Object.values(zip.files);
  if(entries.length>MAX_ENTRIES)throw Error('백업에 너무 많은 파일이 포함되어 있습니다.');
  // Validate filenames and estimated expanded sizes before extracting file bodies.
