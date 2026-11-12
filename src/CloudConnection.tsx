@@ -1,6 +1,7 @@
 import {useEffect,useState} from 'react';
 import {Cloud,CloudOff,RefreshCw,ShieldCheck} from 'lucide-react';
 import {cloudConfig} from './cloudConfig';
+import CloudAuth from './CloudAuth';
 import {checkSupabaseConnection,type CloudCheck} from './supabaseConnection';
 export default function CloudConnection(){
  const [status,setStatus]=useState<CloudCheck>({state:'idle',message:'연결 상태를 확인할 수 있습니다.'});
@@ -20,6 +21,7 @@ export default function CloudConnection(){
    <span>{cloudConfig.enabled?'연결 대상: tihhjzwmlnisndlycgpe.supabase.co':'클라우드 설정 필요'}</span>
    <button className="button soft" disabled={busy} onClick={()=>void check()}><RefreshCw size={15}/>{busy?'확인 중…':'연결 다시 확인'}</button>
   </div>
-  <p className="cloud-connect-note">현재는 서버 연결만 확인합니다. 로그인·원고 업로드·동기화·Google Drive 백업은 아직 활성화되지 않았습니다. 기존 프로젝트는 이 기기에만 저장됩니다.</p>
+  <CloudAuth/>
+  <p className="cloud-connect-note">로그인은 별도 기능이며, 원고 업로드·동기화·Google Drive 백업은 아직 활성화되지 않았습니다. 기존 프로젝트는 이 기기에만 저장됩니다.</p>
  </section>;
 }
