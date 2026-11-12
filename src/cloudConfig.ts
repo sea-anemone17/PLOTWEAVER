@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 /** Cloud settings are optional. No remote requests occur merely by importing this module. */
 export type CloudConfig={
  enabled:boolean;
