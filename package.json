@@ -29,7 +29,8 @@
     "@tiptap/extension-color": "^2.11.7",
     "docx": "^9.5.1",
     "@tiptap/core": "^2.11.7",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "@supabase/supabase-js": "^2.49.0"
   },
   "devDependencies": {
     "typescript": "^5.8.3",
