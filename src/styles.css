@@ -285,3 +285,13 @@
 .recovery-preview{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto;border-radius:8px;background:#f6f7fa;border:1px solid #e6e8ef;padding:16px;font-family:inherit;font-size:13px;line-height:1.8}
 .recovery-warning{padding:12px 16px;background:#fff6e8;border:1px solid #f1e1bd;border-radius:9px;font-size:12px;color:#876239}
 @media(max-width:850px){.recovery-layout{grid-template-columns:1fr}.recovery-list{max-height:260px}.recovery-top>label{width:100%}}
+
+/* Optional Supabase connection status; offline authoring stays available */
+.cloud-connect-panel{border:1px solid #e3e7ee;border-radius:13px;background:#fff;padding:18px 20px;margin:20px 0;display:grid;gap:10px;max-width:780px}
+.cloud-connect-title{display:flex;align-items:center;gap:10px;color:#385b68}
+.cloud-connect-title>div{display:grid;gap:3px}
+.cloud-connect-title strong{font-size:14px}
+.cloud-connect-title small,.cloud-connect-actions span,.cloud-connect-note{font-size:11px;color:#788395}
+.cloud-connect-panel>p{margin:0;font-size:12px;line-height:1.65}
+.cloud-connect-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.cloud-connect-note{border-top:1px solid #eef0f4;padding-top:10px}
