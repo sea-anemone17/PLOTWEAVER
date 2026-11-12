@@ -295,3 +295,6 @@
 .cloud-connect-panel>p{margin:0;font-size:12px;line-height:1.65}
 .cloud-connect-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
 .cloud-connect-note{border-top:1px solid #eef0f4;padding-top:10px}
+
+.cloud-auth-panel{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border,#d8d8d8)}
+.cloud-auth-panel>p{margin:.5rem 0}
