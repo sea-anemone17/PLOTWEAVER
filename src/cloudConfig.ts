@@ -18,4 +18,9 @@ export function parseCloudConfig(url:unknown,key:unknown):CloudConfig{
  if(rawKey.length<15||/\s/.test(rawKey))return {enabled:false,supabaseUrl:null,publishableKey:null,error:'Supabase Publishable Key를 확인해 주세요.'};
  return {enabled:true,supabaseUrl:parsed.origin,publishableKey:rawKey,error:null};
 }
-export const cloudConfig=parseCloudConfig(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+// Supabase publishable keys are designed for public browser clients. Never place secret/service_role keys here.
+// Environment variables override the project's public connection defaults.
+export const cloudConfig=parseCloudConfig(
+ import.meta.env.VITE_SUPABASE_URL || 'https://tihhjzwmlnisndlycgpe.supabase.co',
+ import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_pZ169DXpu9LWhz5OSM8JVQ_C9aYKdzX'
+);
