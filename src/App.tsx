@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Archive, ArrowLeft, ArrowRight, BookOpenText, ChevronLeft, CircleHelp, Download, FilePenLine, FolderOpen, Home, Layers3, LayoutDashboard, Lightbulb, Menu, Network, Plus, Settings2, Sparkles, Upload, X } from 'lucide-react';
 import Workspace, { type Section } from './Workspace';
 import ProjectEditGate from './ProjectEditGate';
+import CloudConnection from './CloudConnection';
 import GlobalWorkspace, { type GlobalSection } from './GlobalWorkspace';
 import { downloadWorkspacePackage, downloadProjectPackage, restorePackage } from './backupZip';
 import { db, createProject, restoreBackup, duplicateProject, deleteProject, downloadBackup, restoreDeletedProject, DIFFICULTIES, type Project } from './data';
@@ -82,6 +83,7 @@ export default function App(){
    <div className="landing-actions"><Button onClick={()=>setWizard(true)}><Plus size={18}/> 새 프로젝트 만들기</Button>
     <Button variant="soft" onClick={()=>void downloadWorkspacePackage().catch(e=>alert('전체 작업 공간 백업 실패: '+String(e)))}><Download size={17}/> 활성 작업 공간 ZIP 백업</Button>
     <label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'JSON·ZIP 백업 복원'}<input type="file" hidden accept=".json,.zip,application/json,application/zip" disabled={importing} onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
+   <CloudConnection/>
    <section className="research-entry-home" aria-label="전역 연구 공간">
      <button onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><strong>아이디어 정원</strong><span>계층형 메모 · 마인드맵</span></button>
      <button onClick={()=>openGlobal('knowledge')}><BookOpenText size={19}/><strong>지식 보관함</strong><span>사상 · 문학 · 개념 연결</span></button>
