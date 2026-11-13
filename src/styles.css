@@ -298,3 +298,5 @@
 
 .cloud-auth-panel{margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border,#d8d8d8)}
 .cloud-auth-panel>p{margin:.5rem 0}
+
+.docx-page-preview{max-height:680px;overflow:auto;background:#e9eaf0;border-radius:12px;margin-top:14px}.docx-page-preview:empty{display:none}.docx-page-preview .docx-wrapper{padding:16px;background:transparent}.docx-page-preview .docx-wrapper>section.docx{max-width:100%;box-shadow:0 4px 20px #25264024;margin:0 auto 14px}
