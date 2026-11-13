@@ -30,7 +30,7 @@ export type Handout = Base & {title:string;kind:'text'|'file';visibility:Visibil
 export type ExportProfile = Base & {name:string;includePrivate:boolean;includeLegacy:boolean;includeScenes:boolean;includeHandouts:boolean;includeGMResources:boolean;fontFamily:string;fontSize:number;pageMargin:number;sceneIds?:string[]};
 
 // Global research data is intentionally independent of project-owned v0.1 idea cards.
-export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number;deletedAt?:number};
+export type GlobalIdea = {id:string;parentId:string|null;title:string;body:string;order:number;collapsed:boolean;createdAt:number;updatedAt:number;deletedAt?:number;mapX?:number;mapY?:number};
 export type GlobalIdeaLink = {id:string;sourceId:string;targetId:string;createdAt:number};
 export type KnowledgeKind='thinker'|'school'|'literature'|'concept';
 export type KnowledgeNote = {id:string;kind:KnowledgeKind;title:string;content:JSONContent;sources:string;createdAt:number;updatedAt:number;deletedAt?:number};
