@@ -6,6 +6,7 @@ import {profilePreset,addExportProfile,updateExportProfile,FONT_OPTIONS,type Exp
 import {exportDocx} from './Editor';
 import {guardedProjectWrite} from './projectLease';
 import {Button,Header} from './UI';
+import {collectExportWarnings} from './exportPreflight';
 
 type Props={projectId:string;title:string};
 export default function ExportProfiles({projectId,title}:Props){
@@ -20,6 +21,8 @@ export default function ExportProfiles({projectId,title}:Props){
  const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(s=>!s.deletedAt).toArray(),[projectId],[]);
  const texts=useLiveQuery(()=>db.handouts.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const legacy=useLiveQuery(()=>db.manuscripts.get(projectId),[projectId]);
+ const assets=useLiveQuery(()=>db.assets.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const edges=useLiveQuery(()=>db.plotEdges.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const change=<K extends keyof ExportProfile>(key:K,value:ExportProfile[K])=>{if(config)setDraft({...config,[key]:value});};
  async function create(){
   setError('');
@@ -38,7 +41,8 @@ export default function ExportProfiles({projectId,title}:Props){
   try{
    await updateExportProfile(config);
    setDraft(null);
-   if(config.includePrivate&&/배포|플레이어/.test(config.name)&&!confirm('이 프로필에는 GM 비공개 정보가 포함됩니다. 배포용 문서로 출력하시겠습니까?'))return;
+   const warnings=collectExportWarnings(config,texts,assets,scenes,edges);
+   if(warnings.length&&!confirm('출력 전 확인할 사항이 '+warnings.length+'개 있습니다.\\n\\n'+warnings.map(w=>'• '+w.message).join('\\n')+'\\n\\n계속 DOCX를 출력하시겠습니까?'))return;
    await exportDocx(projectId,title,config);
   }catch(e){setError('DOCX 출력 실패: '+String(e));}finally{setBusy(false);}
  }
@@ -48,6 +52,7 @@ export default function ExportProfiles({projectId,title}:Props){
  }
  const includedHandouts=texts.filter(t=>t.visibility==='player'||(config?.includePrivate&&t.visibility==='gm'));
  const charCount=legacy?.content?.content?.length||0;
+ const warnings=config?collectExportWarnings(config,texts,assets,scenes,edges):[];
  return <section className="export-profiles">
   <Header eyebrow="EXPORT PROFILES" title="원고 출력 프로필" description="같은 원고에서 GM 진행용·플레이어 배포용·검토용 DOCX의 포함 범위와 기본 서식을 나누어 관리합니다."/>
   {error&&<p className="graph-error" role="alert">{error}</p>}
@@ -102,6 +107,11 @@ export default function ExportProfiles({projectId,title}:Props){
      <p>GM 정보: {config.includePrivate?'포함 가능':'제외'}</p>
      <p className="muted small">이 미리보기는 포함 범위 요약이며 실제 페이지 배치 미리보기는 아닙니다. 이미지·PDF 핸드아웃 원본은 ZIP 백업 또는 별도 파일로 전달해야 합니다.</p>
     </div>
+    <section className="export-preview" aria-label="DOCX 출력 전 검토">
+     <strong>출력 전 검토 · {warnings.length}건</strong>
+     {warnings.length?<ul>{warnings.map(w=><li key={w.code}>{w.message}</li>)}</ul>:<p>현재 설정에서 확인된 주요 누락·공개 범위 경고가 없습니다.</p>}
+     <p className="muted small">이 검토는 주요 누락·공개 범위만 확인하며, 문서의 실제 페이지 배치나 모든 비공개 문구를 자동 판별하지는 않습니다.</p>
+    </section>
     <div className="research-actions">
      <Button disabled={busy} onClick={()=>void generate()}><Download size={15}/> 이 프로필로 DOCX 내보내기</Button>
      <Button variant="soft" disabled={busy} onClick={()=>void save()}>프로필 저장</Button>
