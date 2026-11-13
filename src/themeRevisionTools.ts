@@ -14,7 +14,7 @@ export function diffThemeSnapshot(current:ThemeSnapshot,previous:ThemeSnapshot){
   proseChanged:JSON.stringify(current.prose)!==JSON.stringify(previous.prose),
   added:current.cards.filter(c=>!previousCards.has(c.id)),
   removed:previous.cards.filter(c=>!currentCards.has(c.id)),
-  modified:current.cards.filter(c=>{const p=previousCards.get(c.id);return p&&(p.text!==c.text||p.kind!==c.kind||p.order!==c.order);})
+  modified:current.cards.filter(c=>{const p=previousCards.get(c.id);return p&&(p.text!==c.text||p.kind!==c.kind||p.order!==c.order||JSON.stringify(p.links||[])!==JSON.stringify(c.links||[]));})
  };
 }
 export async function restoreThemeRevisionSafely(themeId:string,revisionId:string){
