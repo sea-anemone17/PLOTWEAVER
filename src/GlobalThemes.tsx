@@ -28,6 +28,9 @@ export default function GlobalThemes(){
  const [pinRevision,setPinRevision]=useState('');
  const [error,setError]=useState('');
  const [compareId,setCompareId]=useState('');
+ const [linkSource,setLinkSource]=useState('');
+ const [linkTarget,setLinkTarget]=useState('');
+ const [linkKind,setLinkKind]=useState<'supports'|'refutes'>('supports');
  const visible=all.filter(t=>!t.deletedAt);
  const selected=visible.find(t=>t.id===selectedId)||visible[0]||null;
  const ownCards=cards.filter(c=>c.themeId===selected?.id).sort((a,b)=>a.order-b.order);
@@ -49,6 +52,14 @@ export default function GlobalThemes(){
  async function pin(){
   if(!pinProject||!pinRevision)return;
   await pinThemeRevision(pinProject,pinRevision);setPinProject('');setPinRevision('');
+ }
+ async function addArgumentLink(){
+  const source=ownCards.find(c=>c.id===linkSource);
+  if(!source||!linkTarget||source.id===linkTarget||!ownCards.some(c=>c.id===linkTarget))throw Error('서로 다른 논증 카드를 선택해 주세요.');
+  const existing=source.links||[];
+  if(existing.some(l=>l.targetId===linkTarget&&l.kind===linkKind))return;
+  await db.themeCards.update(source.id,{links:[...existing,{targetId:linkTarget,kind:linkKind}],updatedAt:now()});
+  setLinkTarget('');
  }
  async function reorder(card:ThemeCard,direction:-1|1){
   const ordered=ownCards.filter(c=>c.kind===card.kind);
@@ -101,6 +112,20 @@ export default function GlobalThemes(){
      </section>
     </div>
     <section className="theme-revisions">
+     <h3>논증 관계망</h3>
+     <p className="muted small">근거·반박의 연결을 카드 단위로 기록합니다. 개정본에도 관계가 함께 보존됩니다.</p>
+     <div className="research-actions">
+      <select aria-label="출발 카드" value={linkSource} onChange={e=>setLinkSource(e.target.value)}><option value="">출발 카드</option>{ownCards.map(c=><option key={c.id} value={c.id}>{c.text.slice(0,35)||c.kind}</option>)}</select>
+      <select aria-label="관계 종류" value={linkKind} onChange={e=>setLinkKind(e.target.value as 'supports'|'refutes')}><option value="supports">근거·지지</option><option value="refutes">반박</option></select>
+      <select aria-label="대상 카드" value={linkTarget} onChange={e=>setLinkTarget(e.target.value)}><option value="">대상 카드</option>{ownCards.filter(c=>c.id!==linkSource).map(c=><option key={c.id} value={c.id}>{c.text.slice(0,35)||c.kind}</option>)}</select>
+      <Button variant="soft" disabled={!linkSource||!linkTarget} onClick={()=>doTask(addArgumentLink())}>관계 추가</Button>
+     </div>
+     {ownCards.flatMap(c=>(c.links||[]).map((link,index)=><div className="garden-link-row" key={c.id+'-'+index}>
+      <span>{c.text.slice(0,45)||c.kind} <strong>{link.kind==='supports'?'── 근거 →':'── 반박 →'}</strong> {ownCards.find(t=>t.id===link.targetId)?.text.slice(0,45)||'(삭제된 카드)'}</span>
+      <button title="논증 관계만 삭제" onClick={()=>doTask(db.themeCards.update(c.id,{links:(c.links||[]).filter((_,i)=>i!==index),updatedAt:now()}))}>×</button>
+     </div>))}
+     <hr/>
+
      <h3><BookMarked size={17}/> 이름 붙인 개정본</h3>
      <p className="muted small">개정본은 생성 후 수정하지 않습니다. 현재 초안이 바뀌어도 기존 개정본과 프로젝트에 고정된 내용은 유지됩니다.</p>
      <div className="research-actions"><input aria-label="개정본 이름" placeholder="예: 반론 수정 전, 최종 논증" value={revisionName} onChange={e=>setRevisionName(e.target.value)}/>
@@ -116,7 +141,7 @@ export default function GlobalThemes(){
       </div>
       {compareId===rev.id&&<div className="revision-diff">
        {(()=>{
-        const snapshot={title:selected.title,claim:selected.claim,prose:selected.prose,cards:ownCards.map(({id,kind,text,order})=>({id,kind,text,order}))};
+        const snapshot={title:selected.title,claim:selected.claim,prose:selected.prose,cards:ownCards.map(({id,kind,text,order,links})=>({id,kind,text,order,links}))};
         const diff=diffThemeSnapshot(snapshot,rev.snapshot);
         return <>
          <p><strong>제목:</strong> {diff.titleChanged?'변경됨':'동일'} · <strong>핵심 명제:</strong> {diff.claimChanged?'변경됨':'동일'} · <strong>자유 서술:</strong> {diff.proseChanged?'변경됨':'동일'}</p>
