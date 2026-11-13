@@ -31,7 +31,8 @@
     "@tiptap/core": "^2.11.7",
     "jszip": "^3.10.1",
     "@supabase/supabase-js": "^2.49.0",
-    "docx-preview": "^0.3.7"
+    "docx-preview": "^0.3.7",
+    "pdfjs-dist": "^4.10.38"
   },
   "devDependencies": {
     "typescript": "^5.8.3",
