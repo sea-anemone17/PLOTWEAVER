@@ -19,7 +19,7 @@ function layoutIdeas(all:GlobalIdea[]):Positioned[]{
  const visit=(node:GlobalIdea,depth:number)=>{
   if(seen.has(node.id))return;
   seen.add(node.id);
-  output.push({node,depth,x:20+depth*238,y:18+output.length*87});
+  output.push({node,depth,x:node.mapX??20+depth*238,y:node.mapY??18+output.length*87});
   if(!node.collapsed)for(const child of children.get(node.id)||[])visit(child,depth+1);
  };
  for(const node of children.get(null)||[])visit(node,0);
@@ -66,6 +66,10 @@ function IdeaFields({node}:{node:GlobalIdea}){
 export default function GlobalIdeaGarden(){
  const all=useLiveQuery(()=>db.globalIdeas.orderBy('createdAt').toArray(),[],[]);
  const links=useLiveQuery(()=>db.globalIdeaLinks.toArray(),[],[]);
+ const projects=useLiveQuery(()=>db.projects.toArray(),[],[]);
+ const [targetProject,setTargetProject]=useState('');
+ const [dragPreview,setDragPreview]=useState<Record<string,{x:number;y:number}>>({});
+ const dragRef=useRef<{id:string;pointerId:number;startX:number;startY:number;x:number;y:number;clientX:number;clientY:number}|null>(null);
  const [selectedId,setSelectedId]=useState('');
  const [mode,setMode]=useState<'tree'|'map'>('map');
  const [parentPick,setParentPick]=useState('');
@@ -74,10 +78,10 @@ export default function GlobalIdeaGarden(){
  const active=all.filter(node=>!node.deletedAt);
  const archived=all.filter(node=>!!node.deletedAt);
  const visible=useMemo(()=>layoutIdeas(active),[all]);
- const positions=new Map(visible.map(n=>[n.node.id,n]));
+ const positions=new Map(visible.map(n=>[n.node.id,{...n,...(dragPreview[n.node.id]||{})}]));
  const selected=active.find(x=>x.id===selectedId)||active[0]||null;
- const width=Math.max(700,...visible.map(p=>p.x+235));
- const height=Math.max(340,...visible.map(p=>p.y+82));
+ const width=Math.max(700,...[...positions.values()].map(p=>p.x+235));
+ const height=Math.max(340,...[...positions.values()].map(p=>p.y+82));
  const attempt=(promise:Promise<unknown>)=>{void promise.then(()=>setError('')).catch(e=>setError(e instanceof Error?e.message:String(e)));};
  async function add(parentId:string|null=null){
   const item=await addGlobalIdea(parentId);setSelectedId(item.id);
@@ -85,6 +89,13 @@ export default function GlobalIdeaGarden(){
  async function move(){
   if(!selected)return;
   await moveGlobalIdea(selected.id,parentPick||null);setParentPick('');
+ }
+ async function copyToProject(){
+  if(!selected||!targetProject)return;
+  const project=await db.projects.get(targetProject);if(!project)throw Error('프로젝트를 찾을 수 없습니다.');
+  const stamp=now();
+  await db.ideas.add({id:crypto.randomUUID(),projectId:targetProject,title:selected.title,body:selected.body,category:'소재',status:'미분류',tags:'전역 아이디어 정원',createdAt:stamp,updatedAt:stamp});
+  setTargetProject('');alert('프로젝트 ‘'+project.title+'’의 아이디어 카드에 사본을 추가했습니다. 원본은 유지됩니다.');
  }
  async function link(){
   if(!selected||!linkPick)return;
@@ -120,7 +131,11 @@ export default function GlobalIdeaGarden(){
        return <path key={link.id} d={`M${a.x+92} ${a.y+52} Q${(a.x+b.x)/2+90} ${Math.max(a.y,b.y)+95} ${b.x+92} ${b.y+52}`} stroke="#b3a2c8" strokeDasharray="5 6" strokeWidth="1.5" fill="none"/>;
       })}
      </svg>
-     {visible.map(({node,x,y})=><button type="button" className={'garden-node'+(selected?.id===node.id?' selected':'')} key={node.id} style={{left:x,top:y}} onClick={()=>setSelectedId(node.id)} title={node.title}>
+     {visible.map(({node,x,y})=><button type="button" className={'garden-node'+(selected?.id===node.id?' selected':'')} key={node.id} style={{left:dragPreview[node.id]?.x??x,top:dragPreview[node.id]?.y??y,touchAction:'none'}} onClick={()=>setSelectedId(node.id)} title={node.title+' · 드래그로 이동'}
+      onPointerDown={e=>{if(e.button!==0)return;dragRef.current={id:node.id,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,x:dragPreview[node.id]?.x??x,y:dragPreview[node.id]?.y??y,clientX:e.clientX,clientY:e.clientY};e.currentTarget.setPointerCapture(e.pointerId);}}
+      onPointerMove={e=>{const d=dragRef.current;if(!d||d.id!==node.id||d.pointerId!==e.pointerId)return;d.clientX=e.clientX;d.clientY=e.clientY;setDragPreview(prev=>({...prev,[node.id]:{x:Math.max(0,d.x+e.clientX-d.startX),y:Math.max(0,d.y+e.clientY-d.startY)}}));}}
+      onPointerUp={e=>{const d=dragRef.current;if(!d||d.id!==node.id||d.pointerId!==e.pointerId)return;dragRef.current=null;const pos={mapX:Math.max(0,d.x+e.clientX-d.startX),mapY:Math.max(0,d.y+e.clientY-d.startY)};if(Math.abs(e.clientX-d.startX)+Math.abs(e.clientY-d.startY)>5)attempt(db.globalIdeas.update(node.id,{...pos,updatedAt:now()}));}}
+      onPointerCancel={()=>{dragRef.current=null;setDragPreview(p=>{const n={...p};delete n[node.id];return n;});}}>
       <strong>{node.title||'제목 없는 아이디어'}</strong><small>{node.body?node.body.slice(0,45):'메모를 작성해 보세요'}</small>
      </button>)}
     </div></div>}
@@ -151,6 +166,15 @@ export default function GlobalIdeaGarden(){
       <button onClick={()=>setSelectedId(l.sourceId===selected.id?l.targetId:l.sourceId)}>{active.find(x=>x.id===(l.sourceId===selected.id?l.targetId:l.sourceId))?.title||'삭제된 아이디어'}</button>
       <button title="연결만 삭제" onClick={()=>attempt(db.globalIdeaLinks.delete(l.id))}>×</button>
      </div>)}
+    </div>}
+    {selected&&<div className="research-fields">
+     <label>프로젝트 아이디어 카드로 복사
+      <select value={targetProject} onChange={e=>setTargetProject(e.target.value)}>
+       <option value="">프로젝트 선택</option>
+       {projects.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}
+      </select>
+     </label>
+     <Button variant="soft" disabled={!targetProject} onClick={()=>attempt(copyToProject())}>원본을 유지하고 프로젝트에 복사</Button>
     </div>}
     {selected&&<Button variant="danger" onClick={()=>{if(confirm('이 아이디어와 하위 항목을 휴지통으로 이동할까요?'))attempt(archiveIdeaTree(selected.id).then(()=>setSelectedId('')));}}><Trash2 size={14}/> 하위 포함 휴지통</Button>}
     {archived.length>0&&<details className="research-trash"><summary>아이디어 휴지통 ({archived.length})</summary>
