@@ -5,6 +5,7 @@ import {db,now,type GlobalIdea} from './data';
 import {addGlobalIdea,archiveIdeaTree,restoreIdeaTree,moveGlobalIdea,linkGlobalIdeas} from './researchData';
 import {registerEditorFlusher,trackEditorWrite} from './saveBarrier';
 import {Button,Empty,Header} from './UI';
+import {guardedProjectWrite} from './projectLease';
 
 type Positioned={node:GlobalIdea;depth:number;x:number;y:number};
 function layoutIdeas(all:GlobalIdea[]):Positioned[]{
@@ -94,7 +95,9 @@ export default function GlobalIdeaGarden(){
   if(!selected||!targetProject)return;
   const project=await db.projects.get(targetProject);if(!project)throw Error('프로젝트를 찾을 수 없습니다.');
   const stamp=now();
-  await db.ideas.add({id:crypto.randomUUID(),projectId:targetProject,title:selected.title,body:selected.body,category:'소재',status:'미분류',tags:'전역 아이디어 정원',createdAt:stamp,updatedAt:stamp});
+  await guardedProjectWrite(targetProject,[db.ideas],async()=>{
+   await db.ideas.add({id:crypto.randomUUID(),projectId:targetProject,title:selected.title,body:selected.body,category:'소재',status:'미분류',tags:'전역 아이디어 정원',createdAt:stamp,updatedAt:stamp});
+  });
   setTargetProject('');alert('프로젝트 ‘'+project.title+'’의 아이디어 카드에 사본을 추가했습니다. 원본은 유지됩니다.');
  }
  async function link(){
