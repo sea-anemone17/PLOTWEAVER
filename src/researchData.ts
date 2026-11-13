@@ -81,7 +81,7 @@ export async function saveThemeRevision(themeId:string,label:string){
   const theme=await db.themes.get(themeId);
   if(!theme||theme.deletedAt)throw Error('주제의식을 찾을 수 없습니다.');
   const cards=(await db.themeCards.where('themeId').equals(themeId).toArray())
-   .sort((a,b)=>a.order-b.order).map(({id,kind,text,order})=>({id,kind,text,order}));
+   .sort((a,b)=>a.order-b.order).map(({id,kind,text,order,links})=>({id,kind,text,order,links}));
   const snapshot:ThemeSnapshot=structuredClone({title:theme.title,claim:theme.claim,prose:theme.prose,cards});
   const revision={id:uid(),themeId,label:label.trim(),snapshot,createdAt:now()};
   await db.themeRevisions.add(revision);return revision;
