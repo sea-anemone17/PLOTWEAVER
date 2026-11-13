@@ -1,9 +1,9 @@
-import {useState} from 'react';
+import {useRef,useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {Download,FilePlus,Trash2} from 'lucide-react';
 import {db,now,type ExportProfile} from './data';
 import {profilePreset,addExportProfile,updateExportProfile,FONT_OPTIONS,type ExportPreset} from './exportProfiles';
-import {exportDocx} from './Editor';
+import {buildDocxBlob,exportDocx} from './Editor';
 import {guardedProjectWrite} from './projectLease';
 import {Button,Header} from './UI';
 import {collectExportWarnings} from './exportPreflight';
@@ -16,6 +16,8 @@ export default function ExportProfiles({projectId,title}:Props){
  const [draft,setDraft]=useState<ExportProfile|null>(null);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState('');
+ const previewContainer=useRef<HTMLDivElement|null>(null);
+ const [previewStatus,setPreviewStatus]=useState('');
  const current=profiles.find(p=>p.id===selectedId)||profiles[0];
  const config=draft&&draft.id===current?.id?draft:current;
  const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(s=>!s.deletedAt).toArray(),[projectId],[]);
@@ -45,6 +47,19 @@ export default function ExportProfiles({projectId,title}:Props){
    if(warnings.length&&!confirm('출력 전 확인할 사항이 '+warnings.length+'개 있습니다.\\n\\n'+warnings.map(w=>'• '+w.message).join('\\n')+'\\n\\n계속 DOCX를 출력하시겠습니까?'))return;
    await exportDocx(projectId,title,config);
   }catch(e){setError('DOCX 출력 실패: '+String(e));}finally{setBusy(false);}
+ }
+ async function renderPreview(){
+  if(!config||!previewContainer.current)return;
+  setBusy(true);setError('');setPreviewStatus('DOCX 페이지 미리보기 생성 중…');
+  try{
+   const blob=await buildDocxBlob(projectId,title,config);
+   const {renderAsync}=await import('docx-preview');
+   if(!previewContainer.current)return;
+   previewContainer.current.replaceChildren();
+   await renderAsync(blob,previewContainer.current,undefined,{breakPages:true,inWrapper:true});
+   setPreviewStatus('생성된 DOCX를 브라우저에서 페이지별로 렌더링했습니다. Word·Google Docs의 실제 줄바꿈과 차이가 있을 수 있습니다.');
+  }catch(e){setError('미리보기 생성 실패: '+String(e));setPreviewStatus('');}
+  finally{setBusy(false);}
  }
  async function remove(){
   if(!current||!confirm('이 출력 프로필을 삭제하시겠습니까? 원고는 삭제되지 않습니다.'))return;
@@ -113,10 +128,13 @@ export default function ExportProfiles({projectId,title}:Props){
      <p className="muted small">이 검토는 주요 누락·공개 범위만 확인하며, 문서의 실제 페이지 배치나 모든 비공개 문구를 자동 판별하지는 않습니다.</p>
     </section>
     <div className="research-actions">
+     <Button variant="soft" disabled={busy} onClick={()=>void renderPreview()}>DOCX 페이지 미리보기</Button>
      <Button disabled={busy} onClick={()=>void generate()}><Download size={15}/> 이 프로필로 DOCX 내보내기</Button>
      <Button variant="soft" disabled={busy} onClick={()=>void save()}>프로필 저장</Button>
      <Button variant="danger" disabled={busy} onClick={()=>void remove()}><Trash2 size={15}/> 프로필 삭제</Button>
     </div>
+    {previewStatus&&<p className="muted small" role="status">{previewStatus}</p>}
+    <div className="docx-page-preview" ref={previewContainer} aria-label="DOCX 페이지별 미리보기"/>
    </article>}
   </div>}
  </section>;
