@@ -127,7 +127,11 @@ export async function buildDocxBlob(projectId:string,title:string,settings:boole
     if(asset.mime.startsWith('image/')){
      try{children.push(await rasterHandoutParagraph(asset.blob));}
      catch{children.push(externalFileNotice(handout.title+' · 이미지 변환 실패'));}
-    }else children.push(externalFileNotice(handout.title+' · PDF 원본은 별도 전달'));
+    }else if(asset.mime==='application/pdf'){
+     try{const {pdfHandoutParagraphs}=await import('./pdfHandout');children.push(...await pdfHandoutParagraphs(asset.blob));}
+     catch(e){children.push(externalFileNotice(handout.title+' · PDF 변환 실패: '+String(e)));}
+    }else children.push(externalFileNotice(handout.title+' · 미지원 파일 형식'));
+
    }
   }
  }
