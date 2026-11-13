@@ -5,7 +5,8 @@ import Workspace, { type Section } from './Workspace';
 import ProjectEditGate from './ProjectEditGate';
 import CloudConnection from './CloudConnection';
 import GlobalWorkspace, { type GlobalSection } from './GlobalWorkspace';
-import { downloadWorkspacePackage, downloadProjectPackage, restorePackage } from './backupZip';
+import { downloadWorkspacePackage, downloadProjectPackage, restorePackage, buildWorkspacePackage } from './backupZip';
+import {encryptBackup,decryptBackup} from './encryptedBackup';
 import { db, createProject, restoreBackup, duplicateProject, deleteProject, downloadBackup, restoreDeletedProject, DIFFICULTIES, type Project } from './data';
 import { Button, Pill } from './UI';
 
@@ -59,10 +60,26 @@ export default function App(){
  function openProject(id:string){localStorage.setItem('plotweaver.active',id);setProjectId(id);setGlobalSection('library');setSection('dashboard');setWizard(false);setDrawer(false);}
  function goHome(){localStorage.removeItem('plotweaver.active');setProjectId('');setGlobalSection('library');setSection('dashboard');setWizard(false);setDrawer(false);}
  function openGlobal(page:GlobalSection){localStorage.removeItem('plotweaver.active');setProjectId('');setGlobalSection(page);setWizard(false);setDrawer(false);}
+ async function downloadEncryptedWorkspace(){
+  const password=prompt('암호화 백업 비밀번호를 입력하세요. 분실하면 복원할 수 없습니다. (8자 이상)');
+  if(password===null)return;
+  if(password.length<8){alert('8자 이상의 암호를 사용해 주세요.');return;}
+  const verify=prompt('같은 비밀번호를 한 번 더 입력하세요.');
+  if(verify!==password){alert('비밀번호가 일치하지 않아 백업을 생성하지 않았습니다.');return;}
+  try{const zip=await buildWorkspacePackage();const encrypted=await encryptBackup(zip,password);
+   const url=URL.createObjectURL(encrypted),link=document.createElement('a');link.href=url;link.download='PLOTWEAVER-전체-작업공간.pwenc';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(e){alert('암호화 백업 실패: '+String(e));}
+ }
  async function importFile(file?:File){
   if(!file)return;setImporting(true);
   try{
-   if(file.name.toLowerCase().endsWith('.zip')||file.type==='application/zip'){
+   if(file.name.toLowerCase().endsWith('.pwenc')){
+    const password=prompt('암호화 백업 비밀번호를 입력하세요.');if(password===null)return;
+    const zip=await decryptBackup(file,password);
+    const restored=await restorePackage(zip);
+    if(restored.length)openProject(restored[0].id);else goHome();
+    alert('암호화 ZIP 복원 완료: 프로젝트 '+restored.length+'개. 기존 데이터는 덮어쓰지 않았습니다.');
+   }else if(file.name.toLowerCase().endsWith('.zip')||file.type==='application/zip'){
     const projects=await restorePackage(file);
     if(projects.length)openProject(projects[0].id);
     else goHome();
@@ -82,7 +99,8 @@ export default function App(){
    <p className="landing-sub">소재를 수집하고, 인과를 발견하고, 플레이 가능한 장면으로 엮어 보세요.<br/>PLOTWEAVER는 작가 대신 결정하지 않습니다.</p>
    <div className="landing-actions"><Button onClick={()=>setWizard(true)}><Plus size={18}/> 새 프로젝트 만들기</Button>
     <Button variant="soft" onClick={()=>void downloadWorkspacePackage().catch(e=>alert('전체 작업 공간 백업 실패: '+String(e)))}><Download size={17}/> 활성 작업 공간 ZIP 백업</Button>
-    <label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'JSON·ZIP 백업 복원'}<input type="file" hidden accept=".json,.zip,application/json,application/zip" disabled={importing} onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
+    <Button variant="soft" onClick={()=>void downloadEncryptedWorkspace()}><Download size={17}/> 비밀번호 암호화 백업</Button>
+    <label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'JSON·ZIP·암호화 백업 복원'}<input type="file" hidden accept=".json,.zip,.pwenc,application/json,application/zip" disabled={importing} onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
    <CloudConnection/>
    <section className="research-entry-home" aria-label="전역 연구 공간">
      <button onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><strong>아이디어 정원</strong><span>계층형 메모 · 마인드맵</span></button>
