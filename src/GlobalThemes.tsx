@@ -6,6 +6,7 @@ import {addThemeCard,createTheme,pinThemeRevision,saveThemeRevision} from './res
 import {Button,Empty,Header} from './UI';
 import ResearchTextField from './ResearchTextField';
 import GlobalRichEditor from './GlobalRichEditor';
+import {diffThemeSnapshot,plainText,restoreThemeRevisionSafely} from './themeRevisionTools';
 
 const KINDS:{id:ThemeCardKind;label:string;help:string}[]=[
  {id:'claim',label:'핵심 명제',help:'중심 주장에 딸린 보조 명제'},
@@ -26,6 +27,7 @@ export default function GlobalThemes(){
  const [pinProject,setPinProject]=useState('');
  const [pinRevision,setPinRevision]=useState('');
  const [error,setError]=useState('');
+ const [compareId,setCompareId]=useState('');
  const visible=all.filter(t=>!t.deletedAt);
  const selected=visible.find(t=>t.id===selectedId)||visible[0]||null;
  const ownCards=cards.filter(c=>c.themeId===selected?.id).sort((a,b)=>a.order-b.order);
@@ -38,6 +40,11 @@ export default function GlobalThemes(){
   if(!selected)return;
   const revision=await saveThemeRevision(selected.id,revisionName);
   setRevisionName('');setPinRevision(revision.id);
+ }
+ async function restoreRevision(id:string){
+  if(!selected||!confirm('선택한 개정본으로 현재 초안을 바꾸시겠습니까? 현재 상태는 복원 직전 개정본으로 자동 보존됩니다.'))return;
+  try{const safety=await restoreThemeRevisionSafely(selected.id,id);setCompareId('');alert('복원 완료. 기존 초안은 ‘'+safety.label+'’에 보존되었습니다.');}
+  catch(e){setError('개정본 복원 실패: '+String(e));}
  }
  async function pin(){
   if(!pinProject||!pinRevision)return;
@@ -102,7 +109,24 @@ export default function GlobalThemes(){
       <summary><strong>{rev.label}</strong><small>{new Date(rev.createdAt).toLocaleString('ko-KR')}</small></summary>
       <p><strong>핵심 명제:</strong> {rev.snapshot.claim||'미작성'}</p>
       <p>논증 카드 {rev.snapshot.cards.length}개 · 프로젝트 고정 {pins.filter(p=>p.revisionId===rev.id).length}개</p>
-      <button onClick={()=>setPinRevision(rev.id)}>이 개정본을 프로젝트에 적용</button>
+      <div className="research-actions">
+       <button onClick={()=>setCompareId(compareId===rev.id?'':rev.id)}>현재 초안과 비교</button>
+       <button onClick={()=>void restoreRevision(rev.id)}>현재 초안으로 안전 복원</button>
+       <button onClick={()=>setPinRevision(rev.id)}>이 개정본을 프로젝트에 적용</button>
+      </div>
+      {compareId===rev.id&&<div className="revision-diff">
+       {(()=>{
+        const snapshot={title:selected.title,claim:selected.claim,prose:selected.prose,cards:ownCards.map(({id,kind,text,order})=>({id,kind,text,order}))};
+        const diff=diffThemeSnapshot(snapshot,rev.snapshot);
+        return <>
+         <p><strong>제목:</strong> {diff.titleChanged?'변경됨':'동일'} · <strong>핵심 명제:</strong> {diff.claimChanged?'변경됨':'동일'} · <strong>자유 서술:</strong> {diff.proseChanged?'변경됨':'동일'}</p>
+         <p>논증 카드 추가 {diff.added.length} · 삭제 {diff.removed.length} · 수정 {diff.modified.length}</p>
+         {diff.claimChanged&&<div><strong>보존본 핵심 명제</strong><p>{rev.snapshot.claim||'미작성'}</p><strong>현재 핵심 명제</strong><p>{selected.claim||'미작성'}</p></div>}
+         {diff.proseChanged&&<details><summary>자유 서술 텍스트 비교</summary><p><strong>보존본:</strong> {plainText(rev.snapshot.prose).slice(0,3000)}</p><p><strong>현재:</strong> {plainText(selected.prose).slice(0,3000)}</p></details>}
+         {[...diff.added,...diff.removed,...diff.modified].map(c=><p key={c.id}><strong>{c.kind}:</strong> {c.text||'(빈 카드)'}</p>)}
+        </>;
+       })()}
+      </div>}
      </details>)}
      {ownRevisions.length===0&&<p className="muted small">아직 보존된 개정본이 없습니다.</p>}
      <div className="theme-pin-area"><h4>프로젝트에 고정하기</h4>
