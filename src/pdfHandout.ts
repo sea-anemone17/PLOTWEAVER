@@ -20,7 +20,7 @@ export async function pdfHandoutParagraphs(blob:Blob):Promise<Paragraph[]>{
    canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
    const ctx=canvas.getContext('2d',{alpha:false});
    if(!ctx)throw Error('PDF 페이지 렌더링을 사용할 수 없습니다.');
-   await page.render({canvas,canvasContext:ctx,viewport}).promise;
+   await page.render({canvasContext:ctx,viewport}).promise;
    const pageImage=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('PDF 페이지 이미지 변환 실패')),'image/png'));
    result.push(await rasterHandoutParagraph(pageImage));
    page.cleanup();
