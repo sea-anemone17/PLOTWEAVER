@@ -26,7 +26,7 @@ export async function restoreThemeRevisionSafely(themeId:string,revisionId:strin
   const originals=await db.themeCards.where('themeId').equals(themeId).toArray();
   const saved:ThemeSnapshot=structuredClone({
    title:theme.title,claim:theme.claim,prose:theme.prose,
-   cards:originals.map(({id,kind,text,order})=>({id,kind,text,order}))
+   cards:originals.map(({id,kind,text,order,links})=>({id,kind,text,order,links}))
   });
   const stamp=now();
   const safety={id:uid(),themeId,label:'복원 직전 자동 보존 · '+new Date(stamp).toLocaleString('ko-KR'),snapshot:saved,createdAt:stamp};
@@ -38,8 +38,8 @@ export async function restoreThemeRevisionSafely(themeId:string,revisionId:strin
   for(const card of originals)if(!keep.has(card.id))await db.themeCards.delete(card.id);
   for(const card of source.cards){
    const base=existing.get(card.id);
-   if(base)await db.themeCards.update(card.id,{kind:card.kind,text:card.text,order:card.order,updatedAt:stamp});
-   else await db.themeCards.add({id:card.id,themeId,kind:card.kind,text:card.text,order:card.order,createdAt:stamp,updatedAt:stamp});
+   if(base)await db.themeCards.update(card.id,{kind:card.kind,text:card.text,order:card.order,links:card.links,updatedAt:stamp});
+   else await db.themeCards.add({id:card.id,themeId,kind:card.kind,text:card.text,order:card.order,links:card.links,createdAt:stamp,updatedAt:stamp});
   }
   await db.themes.update(themeId,{title:source.title,claim:source.claim,prose:structuredClone(source.prose),updatedAt:stamp});
   return safety;
