@@ -23,6 +23,7 @@ import {persistManuscript,preserveEmergencyDraft} from './recovery';
 import {guardedProjectWrite} from './projectLease';
 import { profilePreset, validateExportProfile } from './exportProfiles';
 import type { ExportProfile } from './data';
+import {rasterHandoutParagraph,externalFileNotice} from './docxImages';
 
 const extensions=[
  StarterKit, TrpgBlock, Underline, Link.configure({openOnClick:false}),
@@ -83,6 +84,8 @@ export async function buildDocxBlob(projectId:string,title:string,settings:boole
  const sceneDocs=await db.sceneDocs.where('projectId').equals(projectId).toArray();
  const scenes=await db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray();
  const handouts=profile.includeHandouts?await db.handouts.where('projectId').equals(projectId).toArray():[];
+ const assets=profile.includeHandouts?await db.assets.where('projectId').equals(projectId).toArray():[];
+ const assetMap=new Map(assets.map(a=>[a.id,a]));
  const children:(Paragraph|Table)[]=[];
  children.push(new Paragraph({text:title,heading:HeadingLevel.TITLE,spacing:{after:260}}));
  const appendNodes=(nodes:JSONContent[])=>{
@@ -118,7 +121,14 @@ export async function buildDocxBlob(projectId:string,title:string,settings:boole
   for(const handout of visibleHandouts){
    children.push(new Paragraph({text:handout.title,heading:HeadingLevel.HEADING_2}));
    if(handout.kind==='text')appendNodes(handout.content.content||[]);
-   else children.push(new Paragraph({text:'[파일 핸드아웃 — 실제 이미지/PDF는 ZIP 백업 또는 별도 파일로 전달해야 합니다.]'}));
+   else {
+    const asset=handout.assetId?assetMap.get(handout.assetId):undefined;
+    if(!asset){children.push(externalFileNotice(handout.title+' · 파일 누락'));continue;}
+    if(asset.mime.startsWith('image/')){
+     try{children.push(await rasterHandoutParagraph(asset.blob));}
+     catch{children.push(externalFileNotice(handout.title+' · 이미지 변환 실패'));}
+    }else children.push(externalFileNotice(handout.title+' · PDF 원본은 별도 전달'));
+   }
   }
  }
  if(profile.includePrivate&&profile.includeGMResources){
