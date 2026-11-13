@@ -5,6 +5,7 @@ import {db,now,type KnowledgeKind,type KnowledgeNote} from './data';
 import {createKnowledge} from './researchData';
 import {Button,Empty,Header} from './UI';
 import GlobalRichEditor from './GlobalRichEditor';
+import {indexKnowledgeWikiLinks,linkedKnowledgeIds} from './knowledgeWikiIndex';
 
 export const KNOWLEDGE_KINDS:{value:KnowledgeKind;label:string;headings:string[]}[]=[
  {value:'thinker',label:'사상가',headings:['핵심 사상','주요 저작','서사적 연결']},
@@ -30,6 +31,9 @@ export default function GlobalKnowledge(){
  const preview=visible.find(n=>n.id===previewId)||null;
  const listed=visible.filter(n=>(filter==='all'||n.kind===filter)&&[n.title,n.sources].join(' ').toLowerCase().includes(search.toLowerCase()));
  const incoming=links.filter(x=>x.toId===selected?.id);
+ const automaticBacklinks=indexKnowledgeWikiLinks(visible);
+ const autoIncoming=selected?[...(automaticBacklinks.get(selected.id)||new Set<string>())].filter(id=>!incoming.some(l=>l.fromId===id)):[];
+ const autoOutgoing=selected?linkedKnowledgeIds(selected.content).filter(id=>!links.some(l=>l.fromId===selected.id&&l.toId===id)):[];
  const outgoing=links.filter(x=>x.fromId===selected?.id);
  const wrap=(p:Promise<unknown>)=>{void p.then(()=>setError('')).catch(e=>setError(e instanceof Error?e.message:String(e)));};
  async function add(){
@@ -90,8 +94,11 @@ export default function GlobalKnowledge(){
       {visible.filter(n=>n.id!==selected.id).map(n=><option value={n.id} key={n.id}>{n.title}</option>)}
      </select><Button variant="soft" disabled={!linkId} onClick={()=>wrap(attach())}>연결</Button></div>
      {outgoing.map(link=><div className="garden-link-row" key={link.id}><button onClick={()=>setPreviewId(link.toId)}>{visible.find(n=>n.id===link.toId)?.title||'보관된 지식'}</button><button title="연결 해제" onClick={()=>wrap(db.knowledgeLinks.delete(link.id))}>×</button></div>)}
-     <h4>이 문서를 참조하는 자료 ({incoming.length})</h4>
+     <h4>자동 인식된 [[내부 링크]] ({autoOutgoing.length})</h4>
+     {autoOutgoing.map(id=><button type="button" className="research-backlink" key={id} onClick={()=>setPreviewId(id)}>{visible.find(n=>n.id===id)?.title||"대상 문서 없음"}</button>)}
+     <h4>이 문서를 참조하는 자료 ({incoming.length+autoIncoming.length})</h4>
      {incoming.map(link=><button type="button" className="research-backlink" key={link.id} onClick={()=>setPreviewId(link.fromId)}>{visible.find(n=>n.id===link.fromId)?.title||'보관된 지식'}</button>)}
+     {autoIncoming.map(id=><button type="button" className="research-backlink" key={"auto-"+id} onClick={()=>setPreviewId(id)}>↗ {visible.find(n=>n.id===id)?.title||"참조 문서"}</button>)}
      {preview&&<div className="research-preview"><small>연결된 자료 미리보기 · {getLabel(preview.kind)}</small><strong>{preview.title}</strong>
       <p>{preview.sources||'출처 미입력'}</p><Button variant="soft" onClick={()=>{setSelectedId(preview.id);setPreviewId('');}}>원본 문서 열기</Button>
       <button type="button" onClick={()=>setPreviewId('')} aria-label="미리보기 닫기">닫기</button>
