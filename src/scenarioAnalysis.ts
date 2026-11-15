@@ -10,6 +10,57 @@ export type ScenarioPlan = {
 export type Issue = { key: string; severity: '오류' | '경고' | '제안'; message: string; sceneId?: string };
 const sceneTitle = (scene: Scene) => scene.title || '이름 없는 장면';
 
+/**
+ * Explore declared changes with the same ordering as the simulator.
+ * Manual Keeper adjustments and free-text conditions are not machine-checkable.
+ */
+export function exploreStates(plan: ScenarioPlan, limit = 5000) {
+  const reached = new Set<string>();
+  const acquired = new Set<string>();
+  const endings = new Set<string>();
+  const scene = plan.scenes.find(item => item.id === plan.startSceneId);
+  if (!scene) return { reached, acquired, endings, complete: false, reason: '시작 장면이 지정되지 않았습니다.' };
+  const entry = evaluate(scene.flow?.entry, initialState(plan.variables));
+  if (entry === undefined) return { reached, acquired, endings, complete: false, reason: '시작 장면의 조건을 판정할 수 없습니다.' };
+  const start = startPlay(scene, plan.variables);
+  if (!start) return { reached, acquired, endings, complete: true, reason: '' };
+  const pending = [start];
+  const visited = new Set<string>();
+  let uncertain = false;
+  while (pending.length) {
+    const state = pending.pop()!;
+    const key = JSON.stringify([state.sceneId, [...state.values.entries()].sort(([a],[b])=>a.localeCompare(b))]);
+    if (visited.has(key)) continue;
+    if (visited.size >= limit) return { reached, acquired, endings, complete: false, reason: '상태가 많아 분석 한도에 도달했습니다.' };
+    visited.add(key);
+    reached.add(state.sceneId);
+    const current = plan.scenes.find(item => item.id === state.sceneId)!;
+    for (const route of plan.routes) {
+      if (route.deletedAt || route.sceneId !== current.id) continue;
+      const result = evaluate(route.guard, state.values);
+      if (result === true) acquired.add(route.clueId);
+      else if (result === undefined) uncertain = true;
+    }
+    if (current.flow?.ending) {
+      const exit = evaluate(current.flow.exit, state.values);
+      if (exit === true) endings.add(current.id);
+      if (exit === undefined) uncertain = true;
+    }
+    for (const choice of choices(plan, state)) {
+      if (!choice.next) continue;
+      const exit = evaluate(current.flow?.exit, state.values);
+      const guard = evaluate(choice.edge.guard, choice.afterExit);
+      const entry = evaluate(choice.next.flow?.entry, choice.afterExit);
+      if ([exit,guard,entry].includes(undefined)) { uncertain = true; continue; }
+      if (exit && guard && entry) {
+        // Free-text conditions are treated as possibly true, so warnings are conservative.
+        pending.push(enter(choice.next, { ...state, values: choice.afterExit, steps: [] }));
+      }
+    }
+  }
+  return { reached, acquired, endings, complete: !uncertain, reason: uncertain ? '일부 조건을 판정할 수 없습니다.' : '' };
+}
+
 export function analyze(plan: ScenarioPlan): Issue[] {
   const { scenes, edges, variables, startSceneId, clues, routes, foreshadows } = plan;
   const issues: Issue[] = [];
@@ -107,6 +158,21 @@ export function analyze(plan: ScenarioPlan): Issue[] {
   }
   for (const rule of plan.rules.filter(item => !item.deletedAt)) {
     if (!active.has(rule.sceneId)) add(rule.id, '오류', rule.title + ' · 연결한 판정 장면을 사용할 수 없습니다.', rule.sceneId);
+  }
+  const reachability = exploreStates(plan);
+  if (startSceneId && active.has(startSceneId)) {
+    if (!reachability.complete) add('states:partial', '제안', '변수 상태 분석이 미완료되었습니다. ' + reachability.reason);
+    else {
+      for (const scene of scenes) {
+        if (fromStart?.has(scene.id) && !reachability.reached.has(scene.id)) {
+          add(scene.id + ':state-unreachable', '경고', sceneTitle(scene) + ' · 초기값과 등록된 변수 변경으로 이 장면에 도달하지 못했습니다.', scene.id);
+        }
+      }
+      for (const clue of clues.filter(item => item.required)) {
+        if (!reachability.acquired.has(clue.id)) add(clue.id + ':state-unreachable', '경고', clue.title + ' · 초기값과 등록된 변수 변경으로 획득하지 못했습니다.');
+      }
+      if (endings.length && !reachability.endings.size) add('states:no-ending', '경고', '초기값과 등록된 변수 변경으로 도달할 수 있는 결말이 없습니다.');
+    }
   }
   const timeline = resolveTimeline(plan.events);
   for (const event of plan.events) {

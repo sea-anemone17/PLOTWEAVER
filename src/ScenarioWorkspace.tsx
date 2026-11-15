@@ -1,3 +1,4 @@
+import { confirmUnsavedChanges, useUnsavedChanges } from './unsavedChanges';
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, now, touch, type Clue, type ClueRoute, type Foreshadow, type Project, type Scene } from './data';
@@ -31,7 +32,10 @@ function useAction() {
 function SelectEntity({ label, items, value, change, empty = '미지정' }: {
   label: string; items: { id: string; title: string }[]; value: string; change: (value: string) => void; empty?: string;
 }) {
-  return <label>{label}<select value={value} onChange={event => change(event.target.value)}>
+  return <label>{label}<select value={value} onChange={event => {
+    if(label==='진행을 편집할 장면'&&!confirmUnsavedChanges()){event.currentTarget.value=value;return;}
+    change(event.target.value);
+   }}>
     <option value="">{empty}</option>
     {!!value && !items.some(item => item.id === value) && <option value={value} disabled>사용할 수 없는 연결</option>}
     {items.map(item => <option value={item.id} key={item.id}>{item.title}</option>)}
@@ -57,7 +61,7 @@ export default function ScenarioWorkspace({ project, plan, openScene, openPlot, 
   const full: ScenarioPlan = { ...plan, ...extras };
   return <div className="scenario-workspace">
     <div className="tab-bar" aria-label="시나리오 설계 메뉴">
-      {Object.entries(tabs).map(([key, text]) => <button key={key} type="button" className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => setTab(key as Tab)}>{text}</button>)}
+      {Object.entries(tabs).map(([key, text]) => <button data-unsaved-navigation key={key} type="button" className={tab === key ? 'selected' : ''} aria-pressed={tab === key} onClick={() => setTab(key as Tab)}>{text}</button>)}
     </div>
     {tab === 'flow' && <div className="scenario-grid"><Variables projectId={id} plan={full}/><SceneSettings project={project} plan={full} openPlot={openPlot}/></div>}
     {tab === 'clues' && <CluePaths projectId={id} plan={full} openClues={openClues}/>}
@@ -70,6 +74,7 @@ export default function ScenarioWorkspace({ project, plan, openScene, openPlot, 
 
 function Variables({ projectId, plan }: { projectId: string; plan: ScenarioPlan }) {
   const [id, setId] = useState('');
+  const guard = useUnsavedChanges(projectId);
   const [name, setName] = useState('');
   const [type, setType] = useState<VariableType>('boolean');
   const [rawOptions, setOptions] = useState('');
@@ -84,9 +89,9 @@ function Variables({ projectId, plan }: { projectId: string; plan: ScenarioPlan 
     const variable = { id, name: clean, type, initial, options: type === 'enum' ? options : [] };
     if (!validValue(variable, initial)) throw Error('변수의 초기값을 선택해 주세요.');
     await saveScenarioRecord(projectId, 'scenarioVariables', { name: variable.name, type, initial, options: variable.options }, id || undefined);
-    reset();
+    reset(); guard.markClean();
   });
-  return <section className="settings-panel scenario-form">
+  return <section className="settings-panel scenario-form" onChangeCapture={guard.markDirty} onClickCapture={guard.onStructureClick}>
     <h2>시나리오 변수</h2>
     <label>변수 이름<input value={name} onChange={e => setName(e.target.value)} placeholder="예: 장미의 생존 여부"/></label>
     <label>유형<select value={type} disabled={!!id} onChange={e => {
@@ -95,13 +100,13 @@ function Variables({ projectId, plan }: { projectId: string; plan: ScenarioPlan 
     }}>{Object.entries(variableTypes).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
     {type === 'enum' && <label>선택지 (한 줄에 하나)<textarea value={rawOptions} disabled={!!id} onChange={e => setOptions(e.target.value)}/></label>}
     <label>초기값<ValueField variable={{ type, options }} value={initial} change={setInitial}/></label>
-    <div className="research-actions"><Button disabled={busy} onClick={() => void save()}>변수 저장</Button>{id && <Button variant="soft" onClick={reset}>새 변수</Button>}</div>
+    <div className="research-actions"><Button disabled={busy} onClick={() => void save()}>변수 저장</Button>{id && <Button data-unsaved-navigation variant="soft" onClick={() => { reset(); guard.markClean(); }}>새 변수</Button>}</div>
     {message && <p role="status">{message}</p>}
     <div className="scenario-list">
       {plan.variables.filter(item => !item.deletedAt).map(item => <article key={item.id}>
         <strong>{item.name}</strong><small>{variableTypes[item.type]} · {valueText(item.initial)}</small>
         <div className="research-actions">
-          <Button variant="soft" onClick={() => { setId(item.id); setName(item.name); setType(item.type); setInitial(item.initial); setOptions(item.options.join('\n')); }}>편집</Button>
+          <Button data-unsaved-navigation variant="soft" onClick={() => { guard.markClean(); setId(item.id); setName(item.name); setType(item.type); setInitial(item.initial); setOptions(item.options.join('\n')); }}>편집</Button>
           <Button variant="ghost" disabled={busy} onClick={() => void run(async () => {
             await archiveScenarioRecord(projectId, 'scenarioVariables', item.id, true);
             if (id === item.id) reset();
@@ -125,14 +130,15 @@ function SceneSettings({ project, plan, openPlot }: { project: Project; plan: Sc
       }))}/>
     <SelectEntity label="진행을 편집할 장면" items={plan.scenes} value={id} change={setId}/>
     {scene && <SceneFlowForm key={scene.id} scene={scene} variables={plan.variables.filter(item => !item.deletedAt)}/>}
-    <Button variant="soft" disabled={busy} onClick={openPlot}>플롯 연결 편집</Button>
+    <Button data-unsaved-navigation variant="soft" disabled={busy} onClick={openPlot}>플롯 연결 편집</Button>
     {message && <p role="status">{message}</p>}
   </section>;
 }
 function SceneFlowForm({ scene, variables }: { scene: Scene; variables: ScenarioPlan['variables'] }) {
+  const guard = useUnsavedChanges(scene.projectId);
   const [flow, setFlow] = useState(() => scene.flow || emptyFlow());
   const { busy, message, run } = useAction();
-  return <div className="scenario-form">
+  return <div className="scenario-form" onChangeCapture={guard.markDirty} onClickCapture={guard.onStructureClick}>
     <label className="scenario-check"><input type="checkbox" checked={flow.ending} onChange={e => setFlow({ ...flow, ending: e.target.checked })}/>결말로 종료할 수 있는 장면</label>
     <ConditionField title="장면 진입에 필요한 조건" value={flow.entry} variables={variables} change={entry => setFlow({ ...flow, entry })}/>
     <EffectsField title="진입 후 변수 변경" value={flow.onEntry} variables={variables} change={onEntry => setFlow({ ...flow, onEntry })}/>
@@ -153,7 +159,8 @@ function SceneFlowForm({ scene, variables }: { scene: Scene; variables: Scenario
       }
       await db.scenes.update(scene.id, { flow, updatedAt: now() });
       await touch(scene.projectId);
-    }))}>장면 진행 저장</Button>
+    }).then(()=>guard.markClean()))}>장면 진행 저장</Button>
+    {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
     {message && <p role="status">{message}</p>}
   </div>;
 }
@@ -168,6 +175,7 @@ function Archived({ projectId, table, items, run, busy }: {
     <article key={item.id}><span>{item.title}</span><Button variant="soft" disabled={busy} onClick={() => void run(() => archiveScenarioRecord(projectId, table, item.id, false), '복원했습니다.')}>복원</Button></article>)}</details>;
 }
 function CluePaths({ projectId, plan, openClues }: { projectId: string; plan: ScenarioPlan; openClues: () => void }) {
+  const guard = useUnsavedChanges(projectId);
   const [route, setRoute] = useState(newRoute);
   const [id, setId] = useState('');
   const { busy, message, run } = useAction();
@@ -181,10 +189,10 @@ function CluePaths({ projectId, plan, openClues }: { projectId: string; plan: Sc
     await touch(projectId);
   }));
   return <div className="scenario-grid">
-    <section className="settings-panel scenario-form">
+    <section className="settings-panel scenario-form" onChangeCapture={guard.markDirty} onClickCapture={guard.onStructureClick}>
       <h2>{id ? '획득 경로 편집' : '단서 획득 경로'}</h2>
       <SelectEntity label="단서" items={clues} value={route.clueId} change={clueId => setRoute({ ...route, clueId })}/>
-      {!clues.length && <Button variant="soft" onClick={openClues}>자료실에서 단서 추가</Button>}
+      {!clues.length && <Button data-unsaved-navigation variant="soft" onClick={openClues}>자료실에서 단서 추가</Button>}
       {clue && <label className="scenario-check"><input type="checkbox" checked={!!clue.required} disabled={busy} onChange={e => void setRequired(clue, e.target.checked)}/>결말에 필요한 필수 단서</label>}
       <SelectEntity label="발견 장면" items={scenes} value={route.sceneId} change={sceneId => setRoute({ ...route, sceneId })}/>
       <ConditionField title="획득 조건" value={route.guard} variables={active} change={guard => setRoute({ ...route, guard })}/>
@@ -197,17 +205,18 @@ function CluePaths({ projectId, plan, openClues }: { projectId: string; plan: Sc
             if (error) throw Error(error);
           }
           await saveScenarioRecord(projectId, 'clueRoutes', route, id || undefined);
-          reset();
+          reset(); guard.markClean();
         })}>경로 저장</Button>
-        {id && <Button variant="soft" onClick={reset}>새 경로</Button>}
+        {id && <Button data-unsaved-navigation variant="soft" onClick={() => { reset(); guard.markClean(); }}>새 경로</Button>}
       </div>
+      {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
       {message && <p role="status">{message}</p>}
     </section>
     <section className="settings-panel scenario-list"><h2>등록한 경로</h2>
       {routes.filter(item => !item.deletedAt).map(item => <article key={item.id}>
         <strong>{routeTitle(item)}</strong>{item.note && <p>{item.note}</p>}
         <div className="research-actions">
-          <Button variant="soft" onClick={() => { setId(item.id); setRoute({ clueId: item.clueId, sceneId: item.sceneId, guard: item.guard, note: item.note }); }}>편집</Button>
+          <Button data-unsaved-navigation variant="soft" onClick={() => { guard.markClean(); setId(item.id); setRoute({ clueId: item.clueId, sceneId: item.sceneId, guard: item.guard, note: item.note }); }}>편집</Button>
           <Button variant="ghost" disabled={busy} onClick={() => void run(async () => {
             await archiveScenarioRecord(projectId, 'clueRoutes', item.id, true); if (id === item.id) reset();
           }, '휴지통으로 이동했습니다.')}>휴지통으로</Button>
@@ -219,6 +228,7 @@ function CluePaths({ projectId, plan, openClues }: { projectId: string; plan: Sc
 }
 
 function Foreshadows({ projectId, plan }: { projectId: string; plan: ScenarioPlan }) {
+  const guard = useUnsavedChanges(projectId);
   const [form, setForm] = useState(emptyForeshadow);
   const [id, setId] = useState('');
   const { busy, message, run } = useAction();
@@ -228,7 +238,7 @@ function Foreshadows({ projectId, plan }: { projectId: string; plan: ScenarioPla
     setId(id); setForm({ title, kind, status, introductionId, hintIds, payoffId, payoff, clueId, handoutId, npcId });
   };
   return <div className="scenario-grid">
-    <section className="settings-panel scenario-form"><h2>복선과 회수</h2>
+    <section className="settings-panel scenario-form" onChangeCapture={guard.markDirty} onClickCapture={guard.onStructureClick}><h2>복선과 회수</h2>
       <label>복선 제목<input value={form.title} onChange={e => change('title', e.target.value)}/></label>
       <div className="scenario-fields">
         <label>유형<input list="scenario-foreshadow-kinds" value={form.kind} onChange={e => change('kind', e.target.value)}/><datalist id="scenario-foreshadow-kinds">{kinds.map(kind => <option value={kind} key={kind}/>)}</datalist></label>
@@ -248,15 +258,16 @@ function Foreshadows({ projectId, plan }: { projectId: string; plan: ScenarioPla
       <div className="research-actions"><Button disabled={busy} onClick={() => void run(async () => {
         if (!form.title.trim()) throw Error('복선 제목을 입력해 주세요.');
         await saveScenarioRecord(projectId, 'foreshadows', { ...form, title: form.title.trim(), kind: form.kind.trim() || '기타' }, id || undefined);
-        reset();
-      })}>복선 저장</Button>{id && <Button variant="soft" onClick={reset}>새 복선</Button>}</div>
+        reset(); guard.markClean();
+      })}>복선 저장</Button>{id && <Button data-unsaved-navigation variant="soft" onClick={() => { reset(); guard.markClean(); }}>새 복선</Button>}</div>
+      {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
       {message && <p role="status">{message}</p>}
     </section>
     <section className="settings-panel scenario-list"><h2>복선 목록</h2>
       {plan.foreshadows.filter(item => !item.deletedAt).map(item => <article key={item.id}>
         <strong>{item.title}</strong><small>{item.kind} · {item.status}</small>
         <p>{plan.scenes.find(scene => scene.id === item.introductionId)?.title || '제시 미지정'} → {plan.scenes.find(scene => scene.id === item.payoffId)?.title || '회수 미지정'}</p>
-        <div className="research-actions"><Button variant="soft" onClick={() => edit(item)}>편집</Button>
+        <div className="research-actions"><Button data-unsaved-navigation variant="soft" onClick={() => { guard.markClean(); edit(item); }}>편집</Button>
           <Button variant="ghost" disabled={busy} onClick={() => void run(async () => {
             await archiveScenarioRecord(projectId, 'foreshadows', item.id, true); if (id === item.id) reset();
           }, '휴지통으로 이동했습니다.')}>휴지통으로</Button></div>
@@ -268,7 +279,7 @@ function Foreshadows({ projectId, plan }: { projectId: string; plan: ScenarioPla
 function Diagnostics({ plan, openScene }: { plan: ScenarioPlan; openScene: (id: string) => void }) {
   const issues = analyze(plan);
   return <section className="settings-panel scenario-list"><h2>시나리오 진단</h2>
-    <p className="muted">장면 도달 여부는 연결선을 기준으로 봅니다. 조건을 적용한 실제 진행은 테스트 플레이에서 확인하세요.</p>
+    <p className="muted">연결선과 초기 변수값·등록된 변수 변경을 분석합니다. 자유 서술 조건은 가능하다고 가정하며, KP의 수동 변경이나 즉흥 행동은 포함하지 않습니다.</p>
     {!issues.length && <p>{plan.scenes.length ? '현재 검사 항목에서 문제가 발견되지 않았습니다.' : '장면을 추가하면 진단을 시작할 수 있습니다.'}</p>}
     {(['오류', '경고', '제안'] as const).map(severity => <div key={severity}>
       <h3>{severity} ({issues.filter(item => item.severity === severity).length})</h3>

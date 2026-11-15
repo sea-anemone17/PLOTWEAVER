@@ -71,3 +71,23 @@ describe('world wiki', () => {
     ]);
   });
 });
+
+describe('condition-aware diagnostics', () => {
+  it('identifies an edge that cannot be reached from the initial values', async () => {
+    const { exploreStates } = await import('../src/scenarioAnalysis');
+    const noChange = { ...plan, scenes: [
+      scene('start'),
+      scene('end', { flow: { onEntry: [], onExit: [], ending: true } })
+    ], edges: [edge('blocked', 'start', 'end', { guard: equals })] };
+    expect(exploreStates(noChange).reached.has('end')).toBe(false);
+    expect(analyze(noChange).map(issue => issue.key)).toEqual(expect.arrayContaining(['end:state-unreachable', 'states:no-ending']));
+  });
+  it('does not report unreachable destinations when the exploration limit is reached', async () => {
+    const { exploreStates } = await import('../src/scenarioAnalysis');
+    expect(exploreStates(plan, 1)).toMatchObject({ complete: false });
+  });
+  it('considers free-text conditions as potentially satisfiable', async () => {
+    const { exploreStates } = await import('../src/scenarioAnalysis');
+    expect(exploreStates(plan).reached.has('end')).toBe(true);
+  });
+});

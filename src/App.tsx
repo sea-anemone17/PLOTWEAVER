@@ -105,9 +105,9 @@ export default function App(){
     <label className="button soft upload-button"><Upload size={17}/>{importing?'복원 중…':'JSON·ZIP·암호화 백업 복원'}<input type="file" hidden accept=".json,.zip,.pwenc,application/json,application/zip" disabled={importing} onChange={e=>{void importFile(e.target.files?.[0]);e.target.value='';}}/></label></div>
    <CloudConnection/>
    <section className="research-entry-home" aria-label="전역 연구 공간">
-     <button onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><strong>아이디어 정원</strong><span>계층형 메모 · 마인드맵</span></button>
-     <button onClick={()=>openGlobal('knowledge')}><BookOpenText size={19}/><strong>지식 보관함</strong><span>사상 · 문학 · 개념 연결</span></button>
-     <button onClick={()=>openGlobal('themes')}><Sparkles size={19}/><strong>주제의식 보관함</strong><span>논증 카드 · 개정본</span></button>
+     <button data-unsaved-navigation onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><strong>아이디어 정원</strong><span>계층형 메모 · 마인드맵</span></button>
+     <button data-unsaved-navigation onClick={()=>openGlobal('knowledge')}><BookOpenText size={19}/><strong>지식 보관함</strong><span>사상 · 문학 · 개념 연결</span></button>
+     <button data-unsaved-navigation onClick={()=>openGlobal('themes')}><Sparkles size={19}/><strong>주제의식 보관함</strong><span>논증 카드 · 개정본</span></button>
     </section>
    <section className="projects-section"><div className="section-caption"><h2>내 프로젝트</h2><span>{projects.length}개 · 이 기기에 저장됨</span></div>
     {projects.length?<div className="project-grid">{projects.map(p=><article className="project-card" key={p.id}>
@@ -123,20 +123,20 @@ export default function App(){
  </div>;
  return <ProjectEditGate key={project.id} projectId={project.id} projectTitle={project.title} onGoHome={goHome}><div className="app-shell">
   <aside className={'sidebar'+(drawer?' open':'')}>
-   <div className="sidebar-top"><button className="logo-button" onClick={goHome}><Logo/></button><button className="sidebar-close" onClick={()=>setDrawer(false)} aria-label="메뉴 닫기"><X size={20}/></button></div>
-   <button className="current-project" onClick={goHome}><FolderOpen size={19}/><span><small>현재 프로젝트</small><strong>{project.title}</strong></span><ChevronLeft size={16}/></button>
+   <div className="sidebar-top"><button data-unsaved-navigation className="logo-button" onClick={goHome}><Logo/></button><button className="sidebar-close" onClick={()=>setDrawer(false)} aria-label="메뉴 닫기"><X size={20}/></button></div>
+   <button data-unsaved-navigation className="current-project" onClick={goHome}><FolderOpen size={19}/><span><small>현재 프로젝트</small><strong>{project.title}</strong></span><ChevronLeft size={16}/></button>
    <div className="sidebar-group">WORKSPACE</div>
-   <nav className="sidebar-nav">{nav.map(item=>{const Icon=item.icon;return <button key={item.key} className={'nav-item'+(section===item.key?' active':'')} onClick={()=>{setSection(item.key);setDrawer(false);}}><Icon size={19}/><span>{item.title}</span>{section===item.key&&<span className="nav-active-marker"/>}</button>;})}</nav>
+   <nav className="sidebar-nav">{nav.map(item=>{const Icon=item.icon;return <button key={item.key} data-unsaved-navigation className={'nav-item'+(section===item.key?' active':'')} onClick={()=>{setSection(item.key);setDrawer(false);}}><Icon size={19}/><span>{item.title}</span>{section===item.key&&<span className="nav-active-marker"/>}</button>;})}</nav>
    <div className="sidebar-group">GLOBAL RESEARCH</div>
    <nav className="sidebar-nav" aria-label="전역 연구 공간">
-    <button className="nav-item" onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><span>아이디어 정원</span></button>
-    <button className="nav-item" onClick={()=>openGlobal('knowledge')}><BookOpenText size={19}/><span>지식 보관함</span></button>
-    <button className="nav-item" onClick={()=>openGlobal('themes')}><Sparkles size={19}/><span>주제의식 보관함</span></button>
+    <button data-unsaved-navigation className="nav-item" onClick={()=>openGlobal('ideas')}><Lightbulb size={19}/><span>아이디어 정원</span></button>
+    <button data-unsaved-navigation className="nav-item" onClick={()=>openGlobal('knowledge')}><BookOpenText size={19}/><span>지식 보관함</span></button>
+    <button data-unsaved-navigation className="nav-item" onClick={()=>openGlobal('themes')}><Sparkles size={19}/><span>주제의식 보관함</span></button>
    </nav>
-   <div className="sidebar-bottom"><div className="storage-note"><span className="status-dot"/> 로컬 우선 · 원고 저장 상태는 편집기에서 확인</div><button className="back-link" onClick={goHome}><ArrowLeft size={16}/> 전체 프로젝트</button><div className="sidebar-version">PLOTWEAVER <span>v0.1</span></div></div>
+   <div className="sidebar-bottom"><div className="storage-note"><span className="status-dot"/> 로컬 우선 · 원고 저장 상태는 편집기에서 확인</div><button data-unsaved-navigation className="back-link" onClick={goHome}><ArrowLeft size={16}/> 전체 프로젝트</button><div className="sidebar-version">PLOTWEAVER <span>v0.1</span></div></div>
   </aside>
   {drawer&&<div className="mobile-scrim" onClick={()=>setDrawer(false)}/>}
-  <div className="app-main"><header className="topbar"><button className="mobile-menu" onClick={()=>setDrawer(true)} aria-label="메뉴 열기"><Menu size={23}/></button><div className="breadcrumbs"><button onClick={goHome}>프로젝트</button><span>/</span><strong>{nav.find(x=>x.key===section)?.title}</strong></div><div className="topbar-actions"><span className="save-state"><span className="status-dot"/> 이 기기의 작업 공간</span><button className="icon-button" title="원고 편집기로 이동" onClick={()=>setSection('manuscript')}><BookOpenText size={19}/></button><button className="icon-button" title="설정" onClick={()=>setSection('settings')}><Settings2 size={19}/></button></div></header>
+  <div className="app-main"><header className="topbar"><button className="mobile-menu" onClick={()=>setDrawer(true)} aria-label="메뉴 열기"><Menu size={23}/></button><div className="breadcrumbs"><button data-unsaved-navigation onClick={goHome}>프로젝트</button><span>/</span><strong>{nav.find(x=>x.key===section)?.title}</strong></div><div className="topbar-actions"><span className="save-state"><span className="status-dot"/> 이 기기의 작업 공간</span><button data-unsaved-navigation className="icon-button" title="원고 편집기로 이동" onClick={()=>setSection('manuscript')}><BookOpenText size={19}/></button><button data-unsaved-navigation className="icon-button" title="설정" onClick={()=>setSection('settings')}><Settings2 size={19}/></button></div></header>
   <Workspace key={project.id} project={project} section={section} setSection={setSection} goHome={goHome} openProject={openProject} onOpenGlobalThemes={()=>openGlobal('themes')}/>
   </div>
  </div></ProjectEditGate>;

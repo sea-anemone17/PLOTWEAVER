@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from './unsavedChanges';
 import { useMemo, useState } from 'react';
 import { Button } from './UI';
 import { db, type RuleEvent, type Scene } from './data';
@@ -24,6 +25,7 @@ export function previewRule(rule: RuleDraft) {
 type Form = RuleDraft & { title: string; sceneId: string };
 export default function RuleDesigner({ projectId, scenes, rules }: { projectId: string; scenes: Scene[]; rules: RuleEvent[] }) {
   const blank = (): Form => ({ ...emptyRule, title: '', sceneId: scenes[0]?.id || '' });
+  const guard = useUnsavedChanges(projectId);
   const [form, setForm] = useState(blank);
   const [id, setId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -46,13 +48,13 @@ export default function RuleDesigner({ projectId, scenes, rules }: { projectId: 
       diceExpression(form.successLoss); diceExpression(form.failureLoss);
     }
     await saveScenarioRecord(projectId, 'ruleEvents', { ...form, title: form.title.trim() }, id || undefined);
-    reset(); setStatus('이벤트를 저장했습니다.');
+    reset(); guard.markClean(); setStatus('이벤트를 저장했습니다.');
   });
   const probability = useMemo(() => form.kind === 'skill' && form.source === 'official'
     ? chanceOfSuccess(form.rating, form.difficulty, form.bonus) : undefined, [form.kind, form.source, form.rating, form.difficulty, form.bonus]);
   const rating = form.rating >= 0 ? thresholds(form.rating) : thresholds(0);
   return <div className="scenario-grid">
-    <section className="settings-panel scenario-form">
+    <section className="settings-panel scenario-form" onChangeCapture={guard.markDirty}>
       <h2>{id ? '이벤트 편집' : '새 이벤트'}</h2>
       <label>이름<input value={form.title} onChange={event => patch('title', event.target.value)}/></label>
       <label>장면<select value={form.sceneId} onChange={event => patch('sceneId', event.target.value)}>
@@ -99,11 +101,12 @@ export default function RuleDesigner({ projectId, scenes, rules }: { projectId: 
       <label>{form.kind === 'chase' ? 'KP 메모 · 참가자 MOV, 위치, 장애물과 종료 조건' : form.kind === 'combat' ? 'KP 메모 · DEX 순서, 피해·장갑, 적 행동과 종료 조건' : form.kind === 'san' ? 'KP 메모 · 광기 연출과 후속 처리' : 'KP 메모'}<textarea value={form.notes} onChange={e => patch('notes', e.target.value)}/></label>
       <div className="research-actions">
         <Button disabled={busy} onClick={() => void save()}>저장</Button>
-        {id && <Button variant="soft" onClick={reset}>새 이벤트</Button>}
+        {id && <Button data-unsaved-navigation variant="soft" onClick={() => { reset(); guard.markClean(); }}>새 이벤트</Button>}
         {form.kind !== 'chase' && form.source === 'official' && <Button variant="soft" onClick={() => {
           try { setPreview(previewRule(form)); } catch (error) { setPreview(error instanceof Error ? error.message : String(error)); }
         }}>모의 판정</Button>}
       </div>
+      {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
       {status && <p role="status">{status}</p>}{preview && <p role="status">{preview}</p>}
     </section>
     <section className="settings-panel scenario-list">
@@ -111,7 +114,8 @@ export default function RuleDesigner({ projectId, scenes, rules }: { projectId: 
       {rules.filter(rule => !rule.deletedAt).map(rule => <article key={rule.id}>
         <strong>{rule.title}</strong><small>{ruleKinds[rule.kind]} · {ruleSources[rule.source]} · {scenes.find(scene => scene.id === rule.sceneId)?.title || '장면 없음'}</small>
         <div className="research-actions">
-          <Button variant="soft" disabled={busy} onClick={() => {
+          <Button data-unsaved-navigation variant="soft" disabled={busy} onClick={() => {
+            guard.markClean();
             const { title, sceneId, kind, source, skill, rating, difficulty, bonus, opponentRating, opponentBonus, defense,
               successLoss, failureLoss, success, failure, outcomes, push, notes } = rule;
             setForm({ title, sceneId, kind, source, skill, rating, difficulty, bonus, opponentRating, opponentBonus, defense,

@@ -95,3 +95,33 @@ describe('scenario backup and migration', () => {
     expect(await db.ideas.where('projectId').equals(copy.id).first()).toMatchObject({ body: '기존 메모' });
   });
 });
+
+describe('snapshot archive', () => {
+  it('restores snapshots from workspace and project packages, including a second export of restored data', async () => {
+    const { buildWorkspacePackage } = await import('../src/backupZip');
+    const project = await fixture();
+    await captureProject(project.id, '초고', '첫 버전');
+    await db.projects.update(project.id, { title: '현재 원고' });
+    const [restored] = await restorePackage(await buildWorkspacePackage());
+    const snapshots = await db.projectSnapshots.where('projectId').equals(restored.id).toArray();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({ title: '초고', description: '첫 버전' });
+    const [snapshotCopy] = await restorePackage(snapshots[0].blob);
+    expect(snapshotCopy.title).toBe('꿈의 기록 (복원)');
+    const [twice] = await restorePackage(await buildProjectPackage(restored.id));
+    const twiceSnapshots = await db.projectSnapshots.where('projectId').equals(twice.id).toArray();
+    expect(twiceSnapshots).toHaveLength(1);
+    const [original] = await restorePackage(twiceSnapshots[0].blob);
+    expect(original.title).toBe('꿈의 기록 (복원)');
+  });
+  it('rejects damaged snapshot data without partially importing a project', async () => {
+    const JSZip = (await import('jszip')).default;
+    const project = await fixture();
+    await captureProject(project.id, '초고', '');
+    const zip = await JSZip.loadAsync(await (await buildProjectPackage(project.id)).arrayBuffer());
+    zip.file('snapshots/0/0.zip', 'damaged');
+    const count = await db.projects.count();
+    await expect(restorePackage(await zip.generateAsync({type:'blob'}))).rejects.toThrow('손상');
+    expect(await db.projects.count()).toBe(count);
+  });
+});

@@ -7,7 +7,7 @@ import { Button } from './UI';
 
 const LIMIT = 12;
 export async function captureProject(projectId: string, title: string, description: string) {
-  const blob = await buildProjectPackage(projectId);
+  const blob = await buildProjectPackage(projectId,false);
   return guardedProjectWrite(projectId, [db.projectSnapshots], async () => {
     const count = await db.projectSnapshots.where('projectId').equals(projectId).count();
     if (count >= LIMIT) throw Error('스냅샷은 프로젝트당 ' + LIMIT + '개까지 보관할 수 있습니다. ZIP으로 내려받은 뒤 오래된 항목을 삭제해 주세요.');

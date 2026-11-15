@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from './unsavedChanges';
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Button } from './UI';
@@ -27,10 +28,10 @@ export default function WorldWiki({ projectId, lore, clues, scenes, openScene }:
     <section className="settings-panel scenario-form">
       <h2>프로젝트 세계관</h2>
       <label>문서 검색<input value={search} onChange={e => setSearch(e.target.value)}/></label>
-      <Button variant="soft" onClick={() => setSelected('')}>새 문서</Button>
+      <Button data-unsaved-navigation variant="soft" onClick={() => setSelected('')}>새 문서</Button>
       {grouped.map(group => <details key={group} open><summary>{group}</summary>
         <div className="scenario-list">{visible.filter(note => (note.wiki?.category || (note.kind === 'NPC' ? '인물' : note.kind)) === group).map(note =>
-          <Button key={note.id} variant={note.id === selected ? 'primary' : 'ghost'} onClick={() => setSelected(note.id)}>{note.title} · {note.wiki?.status || '초안'}</Button>
+          <Button data-unsaved-navigation key={note.id} variant={note.id === selected ? 'primary' : 'ghost'} onClick={() => setSelected(note.id)}>{note.title} · {note.wiki?.status || '초안'}</Button>
         )}</div>
       </details>)}
     </section>
@@ -46,6 +47,7 @@ function WikiEditor({ projectId, current, lore, clues, select, linkedScenes, ope
   projectId: string; current?: Lore; lore: Lore[]; clues: Clue[]; select: (id: string) => void;
   linkedScenes: Scene[]; openScene: (id: string) => void;
 }) {
+  const guard = useUnsavedChanges(projectId);
   const [title, setTitle] = useState(current?.title || '');
   const [body, setBody] = useState(current?.body || '');
   const [category, setCategory] = useState(current?.wiki?.category || (current?.kind === 'NPC' ? '인물' : current?.kind || '개념'));
@@ -73,11 +75,11 @@ function WikiEditor({ projectId, current, lore, clues, select, linkedScenes, ope
           npc: isNpc ? npc : undefined });
         await touch(projectId);
       });
-      select(identity.id); setMessage('문서를 저장했습니다.');
+      guard.markClean(); select(identity.id); setMessage('문서를 저장했습니다.');
     } catch (cause) { setMessage(String(cause)); }
     finally { setBusy(false); }
   };
-  return <section className="settings-panel scenario-form">
+  return <section className="settings-panel scenario-form" onChangeCapture={guard.markDirty}>
     <h2>{current ? '위키 문서 편집' : '새 위키 문서'}</h2>
     <label>문서 이름<input value={title} onChange={e => setTitle(e.target.value)}/></label>
     <label className="scenario-check"><input type="checkbox" disabled={!!current} checked={isNpc} onChange={e => {
@@ -106,24 +108,26 @@ function WikiEditor({ projectId, current, lore, clues, select, linkedScenes, ope
       {clues.map(clue => <label key={clue.id} className="scenario-check"><input type="checkbox" checked={npc.knownClueIds.includes(clue.id)} onChange={e =>
         profileValue('knownClueIds', e.target.checked ? [...npc.knownClueIds, clue.id] : npc.knownClueIds.filter(id => id !== clue.id))}/>{clue.title}</label>)}
     </details>}
+    {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
     <Button disabled={busy} onClick={() => void save()}>문서 저장</Button>
     {message && <p role="status">{message}</p>}
     {(links.length > 0 || backlinks.length > 0 || linkedScenes.length > 0) && <div className="scenario-list">
       {links.length > 0 && <h3>연결한 문서</h3>}
       {links.map(link => {
         const target = lore.find(note => note.id === link.targetId);
-        return target ? <Button key={link.label} variant="soft" onClick={() => select(target.id)}>{target.title}</Button> :
+        return target ? <Button data-unsaved-navigation key={link.label} variant="soft" onClick={() => select(target.id)}>{target.title}</Button> :
           <span key={link.label}>[[{link.label}]] · 연결할 문서가 없거나 이름이 겹칩니다.</span>;
       })}
       {backlinks.length > 0 && <h3>이 문서를 참조하는 문서</h3>}
-      {backlinks.map(note => <Button key={note.id} variant="soft" onClick={() => select(note.id)}>{note.title}</Button>)}
+      {backlinks.map(note => <Button data-unsaved-navigation key={note.id} variant="soft" onClick={() => select(note.id)}>{note.title}</Button>)}
       {linkedScenes.length > 0 && <h3>연결된 장면 원고</h3>}
-      {linkedScenes.map(scene => <Button key={scene.id} variant="soft" onClick={() => openScene(scene.id)}>{scene.title}</Button>)}
+      {linkedScenes.map(scene => <Button data-unsaved-navigation key={scene.id} variant="soft" onClick={() => openScene(scene.id)}>{scene.title}</Button>)}
     </div>}
   </section>;
 }
 
 function NpcRelations({ npc, npcs, rows }: { npc: Lore; npcs: Lore[]; rows: NpcRelationship[] }) {
+  const guard = useUnsavedChanges(npc.projectId);
   const [form, setForm] = useState(() => blankRelation(npc.id));
   const [id, setId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -136,7 +140,7 @@ function NpcRelations({ npc, npcs, rows }: { npc: Lore; npcs: Lore[]; rows: NpcR
   };
   const matches = rows.filter(item => item.fromNpcId === npc.id || item.toNpcId === npc.id);
   const name = (id: string) => npcs.find(note => note.id === id)?.title || 'NPC 없음';
-  return <section className="settings-panel scenario-form">
+  return <section className="settings-panel scenario-form" onChangeCapture={guard.markDirty}>
     <h2>NPC 관계</h2>
     <label>{name(form.fromNpcId)}에서 향하는 관계<select value={form.toNpcId} onChange={e => setForm({ ...form, toNpcId: e.target.value })}>
       <option value="">대상 NPC 선택</option>{npcs.filter(note => note.id !== form.fromNpcId).map(note => <option key={note.id} value={note.id}>{note.title}</option>)}
@@ -147,16 +151,17 @@ function NpcRelations({ npc, npcs, rows }: { npc: Lore; npcs: Lore[]; rows: NpcR
     <div className="research-actions"><Button disabled={busy || !form.toNpcId} onClick={() => void run(async () => {
       if (!npcs.some(note => note.id === form.toNpcId) || form.toNpcId === form.fromNpcId) throw Error('대상 NPC를 선택해 주세요.');
       await saveScenarioRecord(npc.projectId, 'npcRelationships', form, id || undefined);
-      setId(''); setForm(blankRelation(npc.id));
-    })}>관계 저장</Button>{id && <Button variant="soft" onClick={() => { setId(''); setForm(blankRelation(npc.id)); }}>새 관계</Button>}</div>
+      setId(''); setForm(blankRelation(npc.id)); guard.markClean();
+    })}>관계 저장</Button>{id && <Button data-unsaved-navigation variant="soft" onClick={() => { setId(''); setForm(blankRelation(npc.id)); guard.markClean(); }}>새 관계</Button>}</div>
+    {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
     {message && <p role="status">{message}</p>}
     <div className="scenario-list">
       {matches.map(row => <article key={row.id}>
         <strong>{name(row.fromNpcId)} → {name(row.toNpcId)} · {row.kind}</strong>
         <small>{row.private ? 'KP 전용' : '공개 가능'}{row.deletedAt ? ' · 휴지통' : ''}</small>{row.pointOfView && <p>{row.pointOfView}</p>}
         <div className="research-actions">
-          {!row.deletedAt && <Button variant="soft" onClick={() => {
-            setId(row.id); setForm({ fromNpcId: row.fromNpcId, toNpcId: row.toNpcId, kind: row.kind, pointOfView: row.pointOfView, private: row.private });
+          {!row.deletedAt && <Button data-unsaved-navigation variant="soft" onClick={() => {
+            guard.markClean(); setId(row.id); setForm({ fromNpcId: row.fromNpcId, toNpcId: row.toNpcId, kind: row.kind, pointOfView: row.pointOfView, private: row.private });
           }}>편집</Button>}
           <Button variant="ghost" disabled={busy} onClick={() => void run(async () => {
             await archiveScenarioRecord(npc.projectId, 'npcRelationships', row.id, !row.deletedAt);

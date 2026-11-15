@@ -1,3 +1,4 @@
+import { useUnsavedChanges } from './unsavedChanges';
 import { useMemo, useState } from 'react';
 import { db, now, touch, type EventCard, type Scene } from './data';
 import { guardedProjectWrite } from './projectLease';
@@ -21,7 +22,7 @@ export default function TimelineCompare({ events, scenes, openScene }: { events:
           <span>{start === undefined ? item.when || '시점 미정' : formatStoryDate(start)}
             {item.timing?.durationMinutes ? ' · ' + item.timing.durationMinutes + '분' : ''}</span>
           {resolution.issues.has(item.id) && <small>{resolution.issues.get(item.id)}</small>}
-          <Button variant="soft" onClick={() => setSelected(item.id)}>시간 편집</Button>
+          <Button data-unsaved-navigation variant="soft" onClick={() => setSelected(item.id)}>시간 편집</Button>
           {event?.id === item.id && <TimingForm key={event.id} event={event} events={events} done={() => setSelected('')}/>}
         </article>;
       })}
@@ -40,6 +41,7 @@ export default function TimelineCompare({ events, scenes, openScene }: { events:
 }
 
 function TimingForm({ event, events, done }: { event: EventCard; events: EventCard[]; done: () => void }) {
+  const guard = useUnsavedChanges(event.projectId);
   const [draft, setDraft] = useState(() => event.timing || { ...emptyTiming, absolute: /^\d{4}-\d\d-\d\d$/.test(event.when) ? event.when + 'T00:00' : '' });
   const [relative, setRelative] = useState(!!draft.afterId);
   const [busy, setBusy] = useState(false);
@@ -57,11 +59,11 @@ function TimingForm({ event, events, done }: { event: EventCard; events: EventCa
         await db.events.update(event.id, { timing, updatedAt: now() });
         await touch(event.projectId);
       });
-      done();
+      guard.markClean(); done();
     } catch (cause) { setError(String(cause)); }
     finally { setBusy(false); }
   };
-  return <div className="scenario-form">
+  return <div className="scenario-form" onChangeCapture={guard.markDirty}>
     <label>시점 방식<select value={relative ? 'relative' : 'absolute'} onChange={e => setRelative(e.target.value === 'relative')}>
       <option value="absolute">절대 시점</option><option value="relative">다른 사건이 끝난 뒤</option>
     </select></label>
@@ -72,7 +74,8 @@ function TimingForm({ event, events, done }: { event: EventCard; events: EventCa
       <label>기준 사건 종료 후 경과 (분)<input type="number" min="0" value={draft.delayMinutes} onChange={e => setDraft({ ...draft, delayMinutes: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}/></label>
     </> : <label>시나리오 내 날짜와 시각<input type="datetime-local" value={draft.absolute} onChange={e => setDraft({ ...draft, absolute: e.target.value })}/></label>}
     <label>지속 시간 (분)<input type="number" min="0" value={draft.durationMinutes} onChange={e => setDraft({ ...draft, durationMinutes: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}/></label>
-    <div className="research-actions"><Button disabled={busy} onClick={() => void commit()}>시점 저장</Button><Button variant="ghost" onClick={done}>취소</Button></div>
+    <div className="research-actions"><Button disabled={busy} onClick={() => void commit()}>시점 저장</Button><Button data-unsaved-navigation variant="ghost" onClick={done}>취소</Button></div>
+    {guard.dirty && <p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
     {error && <p role="alert">{error}</p>}
   </div>;
 }
