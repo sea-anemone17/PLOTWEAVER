@@ -54,11 +54,14 @@ async function uploadBackup(token: string, project: Project): Promise<void> {
  const backup = JSON.stringify(await makeBackup(project.id));
  const existing = await findBackup(token, project.id);
  const metadata = existing ? { name: fileName(project.id) } : { name: fileName(project.id), parents: ['appDataFolder'] };
- const body = new FormData();
- body.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
- body.append('file', new Blob([backup], { type: 'application/json' }));
+ const boundary = 'plotweaver_' + crypto.randomUUID().replace(/-/g, '');
+ const multipart = [
+  `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+  `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${backup}\r\n`,
+  `--${boundary}--`
+ ].join('');
  await apiFetch(token, existing ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existing.id)}?uploadType=multipart` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-  method: existing ? 'PATCH' : 'POST', body
+  method: existing ? 'PATCH' : 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipart
  });
 }
 async function downloadFromDrive(token: string, projectId: string): Promise<Project> {
