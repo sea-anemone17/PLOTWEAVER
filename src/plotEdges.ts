@@ -1,4 +1,5 @@
 import { db, fresh, now, touch, type PlotEdge, type PlotEdgeType } from './data';
+import {conditionError, type Condition} from './scenario';
 import {guardedProjectWrite} from './projectLease';
 
 export const EDGE_TYPES: {value:PlotEdgeType;label:string}[]=[
@@ -16,6 +17,7 @@ export type EdgeDraft={
  label:string;
  condition:string;
  note:string;
+ guard?:Condition;
 };
 export const EMPTY_EDGE:EdgeDraft={fromSceneId:'',toSceneId:'',type:'normal',label:'',condition:'',note:''};
 
@@ -26,11 +28,15 @@ async function assertScene(projectId:string,sceneId:string,required:boolean){
 }
 function cleanDraft(d:EdgeDraft):EdgeDraft{
  if(!EDGE_TYPES.some(t=>t.value===d.type))throw Error('진행 관계 유형이 올바르지 않습니다.');
- return {fromSceneId:d.fromSceneId,toSceneId:d.toSceneId,type:d.type,label:d.label.trim(),condition:d.condition.trim(),note:d.note.trim()};
+ return {fromSceneId:d.fromSceneId,toSceneId:d.toSceneId,type:d.type,label:d.label.trim(),condition:d.condition.trim(),note:d.note.trim(),guard:d.guard};
 }
 export async function createPlotEdge(projectId:string,draft:EdgeDraft):Promise<PlotEdge>{
  const d=cleanDraft(draft);
- return guardedProjectWrite(projectId,[db.scenes,db.plotEdges],async()=>{
+ return guardedProjectWrite(projectId,[db.scenes,db.plotEdges,db.scenarioVariables],async()=>{
+  if(d.guard){
+   const error=conditionError(d.guard,await db.scenarioVariables.where('projectId').equals(projectId).toArray());
+   if(error)throw Error(error);
+  }
   await assertScene(projectId,d.fromSceneId,true);
   await assertScene(projectId,d.toSceneId,false);
   const edge:PlotEdge={...fresh(projectId),...d};
@@ -41,9 +47,13 @@ export async function createPlotEdge(projectId:string,draft:EdgeDraft):Promise<P
 }
 export async function updatePlotEdge(projectId:string,edgeId:string,draft:EdgeDraft){
  const d=cleanDraft(draft);
- await guardedProjectWrite(projectId,[db.scenes,db.plotEdges],async()=>{
+ await guardedProjectWrite(projectId,[db.scenes,db.plotEdges,db.scenarioVariables],async()=>{
   const previous=await db.plotEdges.get(edgeId);
   if(!previous||previous.projectId!==projectId)throw Error('진행 관계를 찾을 수 없습니다.');
+  if(d.guard){
+   const error=conditionError(d.guard,await db.scenarioVariables.where('projectId').equals(projectId).toArray());
+   if(error)throw Error(error);
+  }
   await assertScene(projectId,d.fromSceneId,true);
   await assertScene(projectId,d.toSceneId,false);
   await db.plotEdges.update(edgeId,{...d,updatedAt:now()});

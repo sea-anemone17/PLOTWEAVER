@@ -5,15 +5,19 @@ import { db, fresh, now, touch, STAGES, IDEA_CATEGORIES, IDEA_STATUSES, LORE_KIN
 import { PROMPTS } from './prompts';
 import { Button, Card, Empty, Header, ModalEditor, Pill, type Field } from './UI';
 import ManuscriptEditor, { exportDocx } from './Editor';
+import WorldWiki from './WorldWiki';
+import TimelineCompare from './TimelineCompare';
+import ScenarioWorkspace from './ScenarioWorkspace';
 import PlotGraph from './PlotGraph';
 import ProjectThemes from './ProjectThemes';
 import HandoutLibrary from './HandoutLibrary';
 import ExportProfiles from './ExportProfiles';
+import ProjectSnapshots from './ProjectSnapshots';
 import RecoveryHistory from './RecoveryHistory';
 import {guardedProjectWrite} from './projectLease';
 import {downloadProjectPackage} from './backupZip';
 
-type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'themes'|'handouts'|'export'|'recovery'|'settings';
+type Section='dashboard'|'ideas'|'workshop'|'plot'|'questions'|'archive'|'manuscript'|'themes'|'handouts'|'export'|'recovery'|'settings'|'scenario'|'wiki';
 type Editable='ideas'|'events'|'scenes'|'questions'|'hypotheses'|'lore'|'clues';
 type Dialog={table:Editable;title:string;fields:Field[];initial?:Record<string,unknown>;defaults?:Record<string,unknown>};
 type Props={project:Project;section:Section;setSection:(s:Section)=>void;goHome:()=>void;openProject:(id:string)=>void;onOpenGlobalThemes:()=>void};
@@ -29,8 +33,12 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const plotEdges=useLiveQuery(()=>db.plotEdges.where('projectId').equals(id).toArray(),[id],[]);
  const questions=useLiveQuery(()=>db.questions.where('projectId').equals(id).toArray(),[id],[]);
  const hypotheses=useLiveQuery(()=>db.hypotheses.where('projectId').equals(id).toArray(),[id],[]);
- const lore=useLiveQuery(()=>db.lore.where('projectId').equals(id).toArray(),[id],[]);
- const clues=useLiveQuery(()=>db.clues.where('projectId').equals(id).toArray(),[id],[]);
+ const lore=useLiveQuery(()=>db.lore.where('projectId').equals(id).filter(item=>!item.deletedAt).toArray(),[id],[]);
+ const clues=useLiveQuery(()=>db.clues.where('projectId').equals(id).filter(item=>!item.deletedAt).toArray(),[id],[]);
+ const deletedResources=useLiveQuery(async()=>[
+  ...(await db.lore.where('projectId').equals(id).filter(item=>!!item.deletedAt).toArray()).map(item=>({id:item.id,title:item.title,table:'lore' as const})),
+  ...(await db.clues.where('projectId').equals(id).filter(item=>!!item.deletedAt).toArray()).map(item=>({id:item.id,title:item.title,table:'clues' as const}))
+ ],[id],[]);
  const answers=useLiveQuery(()=>db.answers.where('projectId').equals(id).toArray(),[id],[]);
  const relations=useLiveQuery(()=>db.relations.where('projectId').equals(id).toArray(),[id],[]);
  const [dialog,setDialog]=useState<Dialog|null>(null);
@@ -38,7 +46,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const [ideaStatus,setIdeaStatus]=useState('전체');
  const [plotType,setPlotType]=useState<'scenes'|'events'>('scenes');
  const [manuscriptScene,setManuscriptScene]=useState('');
- const [plotView,setPlotView]=useState<'board'|'timeline'|'graph'>('board');
+ const [plotView,setPlotView]=useState<'board'|'timeline'|'graph'|'compare'>('board');
  const [archiveType,setArchiveType]=useState<'lore'|'clues'>('lore');
  const [selectedQuestion,setSelectedQuestion]=useState<string|null>(null);
  const [questionIndex,setQuestionIndex]=useState(0);
@@ -51,7 +59,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
  const fields={
   ideas:[field('title','아이디어 제목'),field('body','자유 메모','textarea'),field('category','분류','select',option(IDEA_CATEGORIES)),field('status','상태','select',option(IDEA_STATUSES)),field('tags','태그 (쉼표로 구분)')],
   events:[field('title','사건명'),field('body','발생한 일','textarea'),field('when','발생 시점 (정렬하려면 YYYY-MM-DD 권장)'),field('cause','원인','textarea'),field('result','결과','textarea')],
-  scenes:[field('title','장면명'),field('stage','진행 단계','select',option(STAGES)),field('purpose','장면의 목적','textarea'),field('body','진행 내용','textarea'),field('entry','진입 조건'),field('information','발견 가능한 정보','textarea'),field('actions','가능한 PC 행동','textarea'),field('outcome','선택에 따른 결과','textarea'),field('eventId','연결할 실제 사건','select',events.map(e=>({value:e.id,label:e.title})))],
+  scenes:[field('title','장면명'),field('stage','진행 단계','select',option(STAGES)),field('writingStatus','집필 상태','select',option(['구상','작성 중','검토','완료'])),field('purpose','장면의 목적','textarea'),field('body','진행 내용','textarea'),field('entry','진입 조건'),field('information','발견 가능한 정보','textarea'),field('actions','가능한 PC 행동','textarea'),field('outcome','선택에 따른 결과','textarea'),field('eventId','연결할 실제 사건','select',events.map(e=>({value:e.id,label:e.title})))],
   questions:[field('title','아직 설명되지 않은 질문'),field('context','발생 배경','textarea'),field('importance','중요도','select',option(['높음','보통','낮음'])),field('status','해결 상태','select',option(['미해결','검토 중','해결','보류']))],
   hypotheses:[field('body','가설 내용','textarea'),field('evidence','근거','textarea'),field('effect','서사적 효과','textarea'),field('conflict','다른 설정과의 충돌','textarea'),field('status','상태','select',option(['검토','채택','보류','폐기']))],
   lore:[field('title','자료명'),field('body','세부 내용','textarea'),field('kind','종류','select',option(LORE_KINDS)),field('private','GM 전용 정보','checkbox')],
@@ -76,9 +84,13 @@ export default function Workspace({project,section,setSection,goHome,openProject
  async function deleteDialog(){
   if(!dialog||typeof dialog.initial?.id!=='string')return;
   const recordId=dialog.initial.id;
-  await guardedProjectWrite(id,[db.table(dialog.table)],async()=>{
+  await guardedProjectWrite(id,[db.table(dialog.table),db.scenes],async()=>{
    if(dialog.table==='scenes')await db.scenes.update(recordId,{deletedAt:now(),updatedAt:now()});
-   else await db.table(dialog.table).delete(recordId);
+   else if(dialog.table==='lore'||dialog.table==='clues')await db.table(dialog.table).update(recordId,{deletedAt:now(),updatedAt:now()});
+   else{
+    if(dialog.table==='events')await db.scenes.where('projectId').equals(id).filter(scene=>scene.eventId===recordId).modify({eventId:'',updatedAt:now()});
+    await db.table(dialog.table).delete(recordId);
+   }
    await touch(id);
   });
   if(dialog.table==='scenes'&&manuscriptScene===recordId)setManuscriptScene('');
@@ -154,10 +166,21 @@ export default function Workspace({project,section,setSection,goHome,openProject
   </>}
   {section==='plot'&&<>
    <Header eyebrow="PLOT BOARD" title="플롯 보드" description="사건이 발생한 시간과 플레이어가 경험하는 순서를 별도로 관리합니다." action={()=>edit(plotType,undefined,plotType==='scenes'?{title:'',stage:'발단',nextIds:[]}:{title:''})} actionText={plotType==='scenes'?'+ 새 장면':'+ 새 사건'}/>
-   <div className="tab-bar"><button className={plotType==='scenes'?'selected':''} onClick={()=>setPlotType('scenes')}>플레이 진행 · 장면 {scenes.length}</button><button className={plotType==='events'?'selected':''} onClick={()=>setPlotType('events')}>실제 사건 · 연대기 {events.length}</button><span className="grow"/><button className={plotView==='board'?'selected':''} onClick={()=>setPlotView('board')}>단계별</button><button className={plotView==='timeline'?'selected':''} onClick={()=>setPlotView('timeline')}>목록</button>{plotType==='scenes'&&<button className={plotView==='graph'?'selected':''} onClick={()=>setPlotView('graph')}>관계도</button>}</div>
+   <div className="tab-bar"><button className={plotType==='scenes'?'selected':''} onClick={()=>setPlotType('scenes')}>플레이 진행 · 장면 {scenes.length}</button><button className={plotType==='events'?'selected':''} onClick={()=>setPlotType('events')}>실제 사건 · 연대기 {events.length}</button><span className="grow"/><button className={plotView==='board'?'selected':''} onClick={()=>setPlotView('board')}>단계별</button><button className={plotView==='timeline'?'selected':''} onClick={()=>setPlotView('timeline')}>목록</button>{plotType==='scenes'&&<button className={plotView==='graph'?'selected':''} onClick={()=>setPlotView('graph')}>관계도</button>}{plotType==='events'&&<button className={plotView==='compare'?'selected':''} onClick={()=>setPlotView('compare')}>실제·플레이 순서 비교</button>}</div>
    {plotType==='scenes'?(scenes.length?(plotView==='graph'?<PlotGraph projectId={id} scenes={scenes} edges={plotEdges} onEditScene={scene=>edit('scenes',scene)} onWriteScene={sceneId=>{setManuscriptScene(sceneId);setSection('manuscript');}}/>:<div className={plotView==='board'?'plot-board':'stack'}>{(plotView==='board'?stages:['전체']).map(stage=><div className="plot-column" key={stage}><div className="column-head"><span>{stage}</span><small>{scenes.filter(s=>stage==='전체'||s.stage===stage).length} scenes</small></div>{[...scenes].filter(s=>stage==='전체'||s.stage===stage).sort((a,b)=>a.order-b.order).map(s=><Card key={s.id} title={s.title} body={s.purpose||s.body} meta={<Pill>{s.stage}</Pill>} onClick={()=>edit('scenes',s)} footer={<><button title="위로 이동" className="tiny-button" onClick={()=>void swapScene(s,-1)}><ArrowUp size={14}/></button><button title="아래로 이동" className="tiny-button" onClick={()=>void swapScene(s,1)}><ArrowDown size={14}/></button><span>{plotEdges.some(edge=>edge.fromSceneId===s.id)?'다음: '+plotEdges.filter(edge=>edge.fromSceneId===s.id).map(edge=>edge.toSceneId?(scenes.find(x=>x.id===edge.toSceneId)?.title||'복구 대기'):'미정').join(' · '):'후속 장면 미지정'}</span></>}/>)}</div>)}</div>):<Empty title="플레이 진행을 설계해 보세요" description="장면은 여러 후속 장면에 연결할 수 있습니다." action={()=>edit('scenes',undefined,{stage:'발단',nextIds:[]})}/>):
-    (events.length?<div className="timeline">{[...events].sort((a,b)=>plotView==='timeline'?(a.when||'').localeCompare(b.when||''):a.order-b.order).map((e,i)=><div className="timeline-item" key={e.id}><span className="timeline-dot">{i+1}</span><Card title={e.title} body={e.body} meta={<Pill>{e.when||'시점 미정'}</Pill>} onClick={()=>edit('events',e)} footer={<span>{e.cause&&'원인: '+e.cause}</span>}/></div>)}</div>:<Empty title="아직 기록된 사건이 없습니다" description="플레이 시작 이전에 일어난 사건도 등록할 수 있습니다." action={()=>edit('events')}/>)}
+    (plotView==='compare'?<TimelineCompare events={events} scenes={scenes} openScene={sceneId=>{setManuscriptScene(sceneId);setSection('manuscript');}}/>:events.length?<div className="timeline">{[...events].sort((a,b)=>plotView==='timeline'?(a.when||'').localeCompare(b.when||''):a.order-b.order).map((e,i)=><div className="timeline-item" key={e.id}><span className="timeline-dot">{i+1}</span><Card title={e.title} body={e.body} meta={<Pill>{e.when||'시점 미정'}</Pill>} onClick={()=>edit('events',e)} footer={<span>{e.cause&&'원인: '+e.cause}</span>}/></div>)}</div>:<Empty title="아직 기록된 사건이 없습니다" description="플레이 시작 이전에 일어난 사건도 등록할 수 있습니다." action={()=>edit('events')}/>)}
    <p className="hint">✦ 장면 연결은 관계도에서 추가·수정합니다. 플레이 진행 경로와 장면 목록의 정렬 순서는 독립적으로 유지됩니다.</p>
+  </>}
+  {section==='wiki'&&<>
+   <Header eyebrow="WORLD WIKI" title="세계관 위키" description="프로젝트 설정, 인물과 관련 장면을 연결합니다."/>
+   <WorldWiki projectId={id} lore={lore} clues={clues} scenes={scenes} openScene={sceneId=>{setManuscriptScene(sceneId);setSection('manuscript');}}/>
+  </>}
+  {section==='scenario'&&<>
+   <Header eyebrow="SCENARIO DESIGN" title="시나리오 설계" description="장면의 조건, 단서와 판정을 연결하고 진행을 확인합니다."/>
+   <ScenarioWorkspace project={project} plan={{scenes,events,edges:plotEdges,clues,lore,startSceneId:project.startSceneId}}
+    openScene={sceneId=>{setManuscriptScene(sceneId);setSection('manuscript');}}
+    openPlot={()=>{setPlotType('scenes');setPlotView('graph');setSection('plot');}}
+    openClues={()=>{setArchiveType('clues');setSection('archive');}}/>
   </>}
   {section==='questions'&&<>
    <Header eyebrow="QUESTION LAB" title="의문 해결실" description="설명되지 않는 부분을 질문으로 보관하고 가능한 가설을 비교합니다." action={()=>edit('questions',undefined,{status:'미해결',importance:'보통'})} actionText="+ 의문 등록"/>
@@ -174,7 +197,7 @@ export default function Workspace({project,section,setSection,goHome,openProject
   {section==='themes'&&<ProjectThemes projectId={id} onOpenGlobalThemes={onOpenGlobalThemes}/>}
   {section==='handouts'&&<HandoutLibrary projectId={id}/>}
   {section==='export'&&<ExportProfiles projectId={id} title={project.title}/>}
-  {section==='recovery'&&<RecoveryHistory projectId={id} onOpenManuscript={sceneId=>{setManuscriptScene(sceneId||'');setSection('manuscript');}}/>}
+  {section==='recovery'&&<div className="stack"><ProjectSnapshots projectId={id} openProject={openProject}/><RecoveryHistory projectId={id} onOpenManuscript={sceneId=>{setManuscriptScene(sceneId||'');setSection('manuscript');}}/></div>}
    {section==='manuscript'&&<>
    <Header eyebrow="MANUSCRIPT" title="원고 편집기" description="하나의 연속 문서로 집필하고 제목과 목차로 이동합니다." action={()=>void exportDocx(id,project.title,false).catch(e=>alert(String(e)))} actionText="DOCX 다운로드"/>
    <div className="scene-manuscript-picker">
@@ -195,6 +218,11 @@ export default function Workspace({project,section,setSection,goHome,openProject
    <section className="settings-panel"><h2>내보내기 · 백업</h2><p className="muted">작업 데이터는 현재 브라우저의 IndexedDB에 보관됩니다. 브라우저 데이터 삭제·기기 변경 전에 반드시 백업하세요.</p><div className="settings-actions"><Button onClick={()=>void downloadProjectPackage(id).catch(e=>alert('ZIP 백업 실패: '+String(e)))}><Download size={16}/> 첨부파일 포함 ZIP 백업</Button>
 <Button variant="soft" onClick={()=>void downloadBackup(id).catch(e=>alert('JSON 백업 실패: '+String(e)))}><Download size={16}/> JSON 내보내기</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,false).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><FileText size={16}/> 원고 DOCX</Button><Button variant="soft" onClick={()=>void exportDocx(id,project.title,true).catch(e=>alert('DOCX 출력 실패: '+String(e)))}><BookOpen size={16}/> GM 자료 포함 DOCX</Button><Button variant="soft" onClick={()=>setSection('export')}>출력 프로필 관리</Button><Button variant="soft" onClick={()=>setSection('recovery')}>원고 복구 기록</Button></div></section>
    <section className="settings-panel"><h2>프로젝트 관리</h2><p className="muted">복제하면 독립된 새 프로젝트가 생성됩니다. 삭제한 프로젝트는 프로젝트 목록의 휴지통에서 복원할 수 있습니다. 개별 카드 삭제는 아직 복구되지 않습니다.</p><div className="settings-actions"><Button variant="soft" onClick={()=>void duplicateProject(id).then(p=>openProject(p.id)).catch(e=>alert(String(e)))}>프로젝트 복제</Button><Button variant="danger" onClick={()=>{if(confirm('프로젝트를 휴지통으로 이동하시겠습니까? 복원할 수 있습니다.'))void deleteProject(id).then(goHome).catch(e=>alert('삭제 실패: '+String(e)));}}><Trash2 size={16}/> 프로젝트 삭제</Button></div></section>
+   {deletedResources.length>0&&<section className="settings-panel scenario-list"><h2>설정·단서 휴지통</h2>
+    {deletedResources.map(item=><article key={item.id}><span>{item.title}</span><Button variant="soft" onClick={()=>void guardedProjectWrite(id,[db[item.table]],async()=>{
+     await db[item.table].update(item.id,{deletedAt:0,updatedAt:now()});await touch(id);
+    }).catch(error=>alert(String(error)))}>복원</Button></article>)}
+   </section>}
    <section className="settings-panel"><h2>장면 휴지통</h2><p className="muted">삭제한 장면과 장면 원고·자료 연결을 보존합니다. 복원하면 다시 편집할 수 있습니다.</p>
     {trashedScenes.length?trashedScenes.map(scene=><div key={scene.id} className="context-link"><span>{scene.title}</span><Button variant="soft" onClick={()=>void guardedProjectWrite(id,[db.scenes],async()=>{await db.scenes.update(scene.id,{deletedAt:0,updatedAt:now()});await touch(id);}).catch(e=>alert('장면 복원 실패: '+String(e)))}>복원</Button></div>):<p className="muted small">휴지통에 장면이 없습니다.</p>}
    </section>
