@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import {db,downloadBlob,makeBackup,restoreBackup,uid,type Asset,type Backup} from './data';
+import {db,downloadBlob,makeBackupWithAssets,restoreBackup,validateBackup,type Asset,type Backup} from './data';
 import {flushProjectEdits} from './saveBarrier';
 import {makeResearchBackup,importResearchBackup,validateResearchBackup,type ResearchBackup} from './researchData';
 
@@ -25,9 +25,7 @@ async function addAsset(zip:JSZip,asset:Asset):Promise<AssetItem>{
  return {id:asset.id,projectId:asset.projectId,name:asset.name,mime:asset.mime,size:asset.size,path,sha256:await sha256(bytes)};
 }
 export async function buildProjectPackage(projectId:string):Promise<Blob>{
- await flushProjectEdits(projectId);
- const backup=await makeBackup(projectId);
- const assets=await db.assets.where('projectId').equals(projectId).toArray();
+ const {backup,assets}=await makeBackupWithAssets(projectId);
  if(assets.reduce((sum,item)=>sum+item.size,0)>MAX_TOTAL)throw Error('첨부파일 총 크기가 250MB를 초과합니다.');
  const zip=new JSZip();
  zip.file('projects/0.json',JSON.stringify(backup));
@@ -51,11 +49,10 @@ export async function buildWorkspacePackage():Promise<Blob>{
  const manifest:ProjectPackage={format:'plotweaver-package',version:1,scope:'workspace',createdAt:new Date().toISOString(),projects:[],researchPath:'research.json',assets:[]};
  let total=0;
  for(let i=0;i<projects.length;i++){
-  const project=projects[i],backup=await makeBackup(project.id);
+  const project=projects[i],{backup,assets}=await makeBackupWithAssets(project.id);
   const path='projects/'+i+'.json';
   zip.file(path,JSON.stringify(backup));
   manifest.projects.push({path,projectId:project.id});
-  const assets=await db.assets.where('projectId').equals(project.id).toArray();
   for(const asset of assets){
    total+=asset.size;
    if(total>MAX_TOTAL)throw Error('전체 첨부파일 크기가 250MB를 초과합니다. 개별 프로젝트 백업을 이용해 주세요.');
@@ -108,7 +105,6 @@ async function parsePackage(file:Blob){
   expected.add(ref.path);
   const text=await zip.file(ref.path)!.async('string');
   if(text.length>60000000)throw Error('프로젝트 데이터가 너무 큽니다.');
-  const {validateBackup}=await import('./data');
   const backup=validateBackup(text);
   if(backup.project.id!==ref.projectId||seen.has(ref.projectId))throw Error('프로젝트 식별자가 중복되었거나 일치하지 않습니다.');
   seen.add(ref.projectId);

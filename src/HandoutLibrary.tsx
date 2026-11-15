@@ -1,3 +1,6 @@
+import { flushProjectEdits } from './saveBarrier';
+import JSZip from 'jszip';
+import { documentText, handoutDocument, handoutTemplates } from './writingTemplates';
 import {useState} from 'react';
 import {useLiveQuery} from 'dexie-react-hooks';
 import {Download,FilePlus,Paperclip,Trash2} from 'lucide-react';
@@ -17,6 +20,9 @@ type Props={projectId:string};
 export default function HandoutLibrary({projectId}:Props){
  const handouts=useLiveQuery(()=>db.handouts.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const assets=useLiveQuery(()=>db.assets.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray(),[projectId],[]);
+ const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray(),[projectId],[]);
+ const [template,setTemplate]=useState('빈 문서');
  const [selectedId,setSelectedId]=useState('');
  const [error,setError]=useState('');
  const [busy,setBusy]=useState(false);
@@ -24,7 +30,7 @@ export default function HandoutLibrary({projectId}:Props){
  const chosen=selected?.assetId?assets.find(a=>a.id===selected.assetId):undefined;
  const attempt=(p:Promise<unknown>)=>{void p.then(()=>setError('')).catch(e=>setError(e instanceof Error?e.message:String(e)));};
  async function createText(){
-  const item={...fresh(projectId),title:'새 텍스트 핸드아웃',kind:'text' as const,visibility:'draft' as const,content:emptyDocument,assetId:null};
+  const item={...fresh(projectId),title:template==='빈 문서'?'새 텍스트 핸드아웃':template,kind:'text' as const,visibility:'draft' as const,content:handoutDocument(template),assetId:null};
   await guardedProjectWrite(projectId,[db.handouts],async()=>{await db.handouts.add(item);await touch(projectId);});
   setSelectedId(item.id);
  }
@@ -58,6 +64,27 @@ export default function HandoutLibrary({projectId}:Props){
   });
   if(selectedId===id)setSelectedId('');
  }
+ async function downloadPlayerPack(){
+  await flushProjectEdits(projectId);
+  const { publicItems, projectAssets } = await db.transaction('r',[db.handouts,db.assets],async()=>({
+   publicItems:await db.handouts.where('projectId').equals(projectId).filter(item=>item.visibility==='player').toArray(),
+   projectAssets:await db.assets.where('projectId').equals(projectId).toArray()
+  }));
+  if(!publicItems.length)throw Error('플레이어 공개로 표시한 핸드아웃이 없습니다.');
+  const archive=new JSZip();
+  for(const [index,item] of publicItems.entries()){
+   const name=String(index+1).padStart(2,'0')+'-'+item.title.replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_').slice(0,100);
+   if(item.kind==='text')archive.file(name+'.txt',documentText(item.content));
+   else{
+    const asset=projectAssets.find(asset=>asset.id===item.assetId);
+    if(!asset)throw Error(item.title+'의 파일 원본이 없습니다.');
+    const extension=({'image/png':'png','image/jpeg':'jpg','image/webp':'webp','application/pdf':'pdf'} as Record<string,string>)[asset.mime];
+    if(!extension)throw Error(item.title+'의 파일 형식을 확인해 주세요.');
+    archive.file(name+'.'+extension,await asset.blob.arrayBuffer());
+   }
+  }
+  downloadBlob(await archive.generateAsync({type:'blob',compression:'DEFLATE'}),'PLOTWEAVER-플레이어-핸드아웃.zip');
+ }
  function downloadFile(){
   if(!chosen){setError('첨부파일을 찾을 수 없습니다. 백업에서 복구해 주세요.');return;}
   downloadBlob(chosen.blob,chosen.name);
@@ -66,7 +93,12 @@ export default function HandoutLibrary({projectId}:Props){
   <Header eyebrow="HANDOUT LIBRARY" title="핸드아웃" description="외부 파일을 등록하거나 문서형 텍스트 핸드아웃을 작성합니다. 공개 범위는 원고 출력과 별도로 관리합니다."/>
   {error&&<p className="graph-error" role="alert">{error}</p>}
   <div className="research-actions handout-actions">
+   <label>템플릿 <select value={template} onChange={e=>setTemplate(e.target.value)}>{Object.keys(handoutTemplates).map(name=><option key={name}>{name}</option>)}</select></label>
    <Button onClick={()=>attempt(createText())}><FilePlus size={15}/> 텍스트 핸드아웃</Button>
+   <Button variant="soft" disabled={busy||!handouts.some(item=>item.visibility==='player')} onClick={()=>{
+    setBusy(true);
+    attempt(downloadPlayerPack().finally(()=>setBusy(false)));
+   }}>공개용 ZIP</Button>
    <label className="button soft upload-button"><Paperclip size={15}/>{busy?'파일 저장 중…':'파일 등록'}<input disabled={busy} type="file" hidden accept=".pdf,image/png,image/jpeg,image/webp" onChange={e=>{void upload(e.target.files?.[0]);e.target.value='';}}/></label>
   </div>
   {!handouts.length?<Empty title="플레이어에게 전달할 자료를 준비해 보세요" description="편지·일지 같은 텍스트를 작성하거나 이미지·PDF를 등록할 수 있습니다." action={()=>attempt(createText())}/>:
@@ -87,6 +119,16 @@ export default function HandoutLibrary({projectId}:Props){
      }))}>
       {VISIBILITIES.map(v=><option value={v.value} key={v.value}>{v.label}</option>)}
      </select></label>
+     {([['sceneId','공개 장면',scenes],['clueId','공개에 필요한 단서',clues]] as const).map(([key,label,items])=>
+      <label key={key}>{label}<select value={selected[key]||''} onChange={e=>{
+       const value=e.target.value;
+       attempt(guardedProjectWrite(projectId,[db.handouts],async()=>{
+        await db.handouts.update(selected.id,{[key]:value,updatedAt:now()});await touch(projectId);
+       }));
+      }}><option value="">지정하지 않음</option>
+      {!!selected[key]&&!items.some(item=>item.id===selected[key])&&<option disabled value={selected[key]}>사용할 수 없는 연결</option>}
+      {items.map(item=><option key={item.id} value={item.id}>{item.title}</option>)}
+      </select></label>)}
     </div>
     {selected.kind==='text'?<>
      <Pill>편집 가능한 텍스트</Pill>
