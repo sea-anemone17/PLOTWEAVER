@@ -43,7 +43,10 @@ export async function uploadEncryptedWorkspace(password:string):Promise<VaultEnt
  const encrypted=await encryptBackup(zip,password);
  if(encrypted.size>CLOUD_VAULT_LIMIT)throw Error('암호화된 전체 백업이 45MiB를 초과합니다. ZIP 파일로 로컬 백업해 주세요.');
  const name=vaultName();
- const {error}=await client().storage.from(CLOUD_VAULT_BUCKET).upload(id+'/'+name,encrypted,{
+ // Supabase Storage uses Blob.type as the request MIME type; the bucket only
+ // accepts application/octet-stream. Rewrap without changing encrypted bytes.
+ const uploadBlob=new Blob([encrypted],{type:'application/octet-stream'});
+ const {error}=await client().storage.from(CLOUD_VAULT_BUCKET).upload(id+'/'+name,uploadBlob,{
   contentType:'application/octet-stream',cacheControl:'0',upsert:false
  });
  if(error)throw Error(storageError(error));
