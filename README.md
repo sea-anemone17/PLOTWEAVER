@@ -60,3 +60,19 @@ Google OAuth 로그인에 성공해도 원고는 자동 업로드되지 않습�
 - 파일 크기 제한은 45MiB입니다. 업로드가 불가능하면 기존 로컬 ZIP 백업을 이용하세요.
 - 이 기능은 **수동 스냅샷 백업**이며 자동 동기화, 실시간 공동 편집, 두 기기 변경 사항 병합 기능은 아닙니다.
 - 개발 단계이므로 민감한 실원고보다 테스트 프로젝트로 먼저 검증하고 로컬 ZIP 백업을 별도로 유지하세요.
+
+## v1.3 실험 기능: Google Drive 암호화 백업 (개발 브랜치)
+
+Google 로그인(Supabase)과 Drive 권한은 별개입니다. Drive API를 별도로 활성화하고 사용자가 Drive 권한을 허용해야 합니다.
+
+1. Google Cloud Console에서 프로젝트를 선택하고 **Google Drive API**를 사용 설정합니다.
+2. **Google Auth Platform → Data Access**에서 `https://www.googleapis.com/auth/drive.file` 범위를 설정하고, 테스트 단계에서는 테스트 사용자에 자신의 Google 계정을 등록합니다. 앱 공개/검증 필요 여부는 Google 정책에 따릅니다.
+3. **Clients → OAuth 2.0 Client IDs → Web application**을 생성하거나 기존 웹 클라이언트를 사용합니다. **Authorized JavaScript origins**에 실제 앱의 origin만 등록합니다. 개발 중 StackBlitz origin이 바뀌면 추가해야 합니다. 와일드카드는 Google OAuth JS origin에서 사용할 수 없습니다.
+4. 로컬 개발환경의 `.env.local`에 `VITE_GOOGLE_DRIVE_CLIENT_ID=YOUR_WEB_CLIENT_ID.apps.googleusercontent.com`을 입력하고 Vite 개발 서버를 재시작합니다. **Client secret은 절대로 VITE_ 환경변수에 넣지 마세요.**
+5. 앱에서 Google Drive 연결을 누른 뒤 권한을 승인하고, 테스트 프로젝트로 새 백업 → 목록 확인 → 복원본 추가를 검증합니다.
+
+- Drive에는 `.pwenc` 암호화 파일만 저장하며 비밀번호는 업로드하지 않습니다.
+- Drive 권한은 `drive.file`로 제한하여 이 앱이 생성한 파일만 관리합니다. 파일은 사용자 Drive의 일반 파일 영역에 저장되며 자동으로 전용 폴더로 정리되지 않습니다.
+- 접근 토큰은 메모리에만 보관합니다. 페이지 새로고침 후에는 Drive를 다시 연결해야 합니다.
+- 기존 파일을 덮어쓰거나 삭제하지 않으며, 복원 시 기존 프로젝트를 덮어쓰지 않습니다.
+- **자동 동기화가 아닙니다.** 중요한 데이터는 기존 Supabase 및 로컬 백업과 병행하세요.
