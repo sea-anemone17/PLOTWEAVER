@@ -3,6 +3,7 @@ import {Cloud,CloudOff,RefreshCw,ShieldCheck} from 'lucide-react';
 import {cloudConfig} from './cloudConfig';
 import CloudAuth from './CloudAuth';
 import CloudVault from './CloudVault';
+import GoogleDriveVault from './GoogleDriveVault';
 import {checkSupabaseConnection,type CloudCheck} from './supabaseConnection';
 export default function CloudConnection(){
  const [status,setStatus]=useState<CloudCheck>({state:'idle',message:'연결 상태를 확인할 수 있습니다.'});
@@ -24,6 +25,7 @@ export default function CloudConnection(){
   </div>
   <CloudAuth/>
   <CloudVault/>
-  <p className="cloud-connect-note">수동 암호화 백업은 명시적으로 실행할 때만 업로드됩니다. 실시간 동기화·Google Drive 연동은 아직 지원하지 않습니다. 원고 편집은 계속 로컬 우선으로 작동합니다.</p>
+  <GoogleDriveVault/>
+  <p className="cloud-connect-note">수동 암호화 백업은 명시적으로 실행할 때만 업로드됩니다. Google Drive 백업은 별도 OAuth 설정 후 수동으로 이용할 수 있습니다. 실시간 동기화는 지원하지 않습니다. 원고 편집은 계속 로컬 우선으로 작동합니다.</p>
  </section>;
 }
