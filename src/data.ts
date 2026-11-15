@@ -1,23 +1,27 @@
 import Dexie, { type Table } from 'dexie';
 import type { JSONContent } from '@tiptap/react';
+import { remapCondition, remapFlow, validValue, type Condition, type SceneFlow, type VariableSpec } from './scenario';
+import type { NpcProfile, WikiDetails } from './worldWiki';
+import type { EventTiming } from './scenarioTimeline';
+import type { RuleDraft } from './coc7';
 import { flushProjectEdits } from './saveBarrier';
 import {assertProjectLeaseWritable} from './projectLease';
 
-export type Project = {id:string;title:string;kind:string;stage:string;difficulty:string;mode:string;model:string;nextTask:string;createdAt:number;updatedAt:number};
+export type Project = {id:string;title:string;kind:string;stage:string;difficulty:string;mode:string;model:string;nextTask:string;startSceneId?:string;createdAt:number;updatedAt:number};
 type Base = {id:string;projectId:string;createdAt:number;updatedAt:number};
 export type Idea = Base & {title:string;body:string;category:string;status:string;tags:string};
-export type EventCard = Base & {title:string;body:string;when:string;cause:string;result:string;order:number};
-export type Scene = Base & {title:string;purpose:string;body:string;entry:string;information:string;actions:string;outcome:string;nextIds:string[];eventId:string;order:number;stage:string;deletedAt?:number};
+export type EventCard = Base & {title:string;body:string;when:string;cause:string;result:string;order:number;timing?:EventTiming};
+export type Scene = Base & {title:string;purpose:string;body:string;entry:string;information:string;actions:string;outcome:string;nextIds:string[];eventId:string;order:number;stage:string;writingStatus?:string;deletedAt?:number;flow?:SceneFlow};
 export type Question = Base & {title:string;context:string;importance:string;status:string};
 export type Hypothesis = Base & {questionId:string;body:string;evidence:string;effect:string;conflict:string;status:string};
-export type Lore = Base & {title:string;body:string;kind:string;private:boolean};
-export type Clue = Base & {title:string;body:string;truth:string;where:string;condition:string;alternate:string;audience:string};
+export type Lore = Base & {title:string;body:string;kind:string;private:boolean;deletedAt?:number;wiki?:WikiDetails;npc?:NpcProfile};
+export type Clue = Base & {title:string;body:string;truth:string;where:string;condition:string;alternate:string;audience:string;deletedAt?:number;required?:boolean};
 export type Answer = Base & {promptId:string;body:string;status:'답변'|'보류'|'해당 없음'};
 export type Manuscript = {projectId:string;content:JSONContent;updatedAt:number};
 export type SceneDocument = {id:string;projectId:string;sceneId:string;content:JSONContent;updatedAt:number};
 export type SceneLink = Base & {sceneId:string;resourceId:string;resourceKind:'lore'|'clues';role:string};
 export type PlotEdgeType='normal'|'conditional'|'choice'|'return'|'optional';
-export type PlotEdge = Base & {fromSceneId:string;toSceneId:string;type:PlotEdgeType;label:string;condition:string;note:string};
+export type PlotEdge = Base & {fromSceneId:string;toSceneId:string;type:PlotEdgeType;label:string;condition:string;note:string;guard?:Condition};
 export type PlotLayout = Base & {sceneId:string;x:number;y:number};
 export type Relation = Base & {sourceId:string;targetId:string;type:string};
 export type TrashedProject = {id:string;deletedAt:number;backup:Backup;assets?:Asset[]};
@@ -26,7 +30,18 @@ export type RecoveryKind='auto'|'named'|'before-restore'|'emergency';
 export type RecoveryRecord=Base & {docKey:string;kind:RecoveryKind;label:string;content:JSONContent};
 export type Visibility='gm'|'player'|'draft';
 export type Asset = Base & {name:string;mime:string;size:number;blob:Blob};
-export type Handout = Base & {title:string;kind:'text'|'file';visibility:Visibility;content:JSONContent;assetId:string|null};
+export type Handout = Base & {title:string;kind:'text'|'file';visibility:Visibility;content:JSONContent;assetId:string|null;sceneId?:string;clueId?:string};
+export type ScenarioVariable = Base & VariableSpec;
+type Archiveable = Base & {deletedAt?:number};
+export type ClueRoute = Archiveable & {clueId:string;sceneId:string;guard?:Condition;note:string};
+export type Foreshadow = Archiveable & {title:string;kind:string;status:string;introductionId:string;hintIds:string[];payoffId:string;payoff:string;clueId:string;handoutId:string;npcId:string};
+export type RuleEvent = Archiveable & RuleDraft & {title:string;sceneId:string};
+export type NpcRelationship = Archiveable & {fromNpcId:string;toNpcId:string;kind:string;pointOfView:string;private:boolean};
+export type StoredProjectSnapshot = Base & {title:string;description:string;blob:Blob};
+export type SimulationLog = Archiveable & {title:string;steps:string[];outcome:string};
+export type ScenarioRecords = {
+ scenarioVariables:ScenarioVariable;clueRoutes:ClueRoute;foreshadows:Foreshadow;ruleEvents:RuleEvent;simulationLogs:SimulationLog;npcRelationships:NpcRelationship;
+};
 export type ExportProfile = Base & {name:string;includePrivate:boolean;includeLegacy:boolean;includeScenes:boolean;includeHandouts:boolean;includeGMResources:boolean;fontFamily:string;fontSize:number;pageMargin:number;sceneIds?:string[]};
 
 // Global research data is intentionally independent of project-owned v0.1 idea cards.
@@ -56,6 +71,9 @@ export class PlotDB extends Dexie {
  projectThemes!:Table<ProjectTheme,string>;themeRelations!:Table<ThemeRelation,string>;
  assets!:Table<Asset,string>;handouts!:Table<Handout,string>;exportProfiles!:Table<ExportProfile,string>;
  editLeases!:Table<EditorLease,string>;recoveryRecords!:Table<RecoveryRecord,string>;
+ scenarioVariables!:Table<ScenarioVariable,string>;clueRoutes!:Table<ClueRoute,string>;
+ foreshadows!:Table<Foreshadow,string>;ruleEvents!:Table<RuleEvent,string>;simulationLogs!:Table<SimulationLog,string>;
+ projectSnapshots!:Table<StoredProjectSnapshot,string>;npcRelationships!:Table<NpcRelationship,string>;
  constructor(){super('plotweaver');this.version(1).stores({
  projects:'id,updatedAt',ideas:'id,projectId,status,category,updatedAt',
  events:'id,projectId,order',scenes:'id,projectId,order,stage',questions:'id,projectId,status',
@@ -93,6 +111,10 @@ export class PlotDB extends Dexie {
   editLeases:'projectId,expiresAt',
   recoveryRecords:'id,projectId,docKey,kind,createdAt'
  });
+ this.version(8).stores({
+  scenarioVariables:'id,projectId',clueRoutes:'id,projectId,clueId,sceneId',foreshadows:'id,projectId',
+  ruleEvents:'id,projectId,sceneId',simulationLogs:'id,projectId',projectSnapshots:'id,projectId,createdAt',npcRelationships:'id,projectId,fromNpcId,toNpcId'
+ });
  }
 }
 export const db=new PlotDB();
@@ -116,8 +138,9 @@ export async function createProject(form:Pick<Project,'title'|'kind'|'stage'|'di
  });
  return p;
 }
-export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles','recoveryRecords'] as const;
-export type Backup={format:'plotweaver';version:1;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null;assetManifest?:{id:string;name:string;mime:string;size:number}[]};
+const scenarioCollections=['scenarioVariables','clueRoutes','foreshadows','ruleEvents','simulationLogs','npcRelationships'] as const;
+export const collections=['ideas','events','scenes','questions','hypotheses','lore','clues','answers','relations','sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles','recoveryRecords',...scenarioCollections] as const;
+export type Backup={format:'plotweaver';version:1|2;exportedAt:string;project:Project;data:Record<string,unknown[]>;manuscript:Manuscript|null;assetManifest?:{id:string;name:string;mime:string;size:number}[]};
 
 // Snapshot all project records in one transaction so a backup cannot mix different edit states.
 async function collectBackup(id:string):Promise<Backup>{
@@ -126,11 +149,17 @@ async function collectBackup(id:string):Promise<Backup>{
  const data:Record<string,unknown[]>={};
  for(const name of collections)data[name]=await db.table(name).where('projectId').equals(id).toArray();
  const assets=await db.assets.where('projectId').equals(id).toArray();
- return {format:'plotweaver',version:1,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null,assetManifest:assets.map(({id,name,mime,size})=>({id,name,mime,size}))};
+ return {format:'plotweaver',version:2,exportedAt:new Date().toISOString(),project,data,manuscript:await db.manuscripts.get(id)||null,assetManifest:assets.map(({id,name,mime,size})=>({id,name,mime,size}))};
 }
 export async function makeBackup(id:string):Promise<Backup>{
  await flushProjectEdits(id);
  return db.transaction('r',db.tables,()=>collectBackup(id));
+}
+export async function makeBackupWithAssets(id:string) {
+ await flushProjectEdits(id);
+ return db.transaction('r',db.tables,async()=>({
+  backup:await collectBackup(id),assets:await db.assets.where('projectId').equals(id).toArray()
+ }));
 }
 export function downloadBlob(blob:Blob,name:string){
  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;
@@ -147,11 +176,11 @@ export function validateBackup(text:string):Backup{
  try{raw=JSON.parse(text);}catch{throw Error('JSON 백업 파일을 읽을 수 없습니다.');}
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('백업 파일 형식이 올바르지 않습니다.');
  const b=raw as Partial<Backup>;
- if(b.format!=='plotweaver'||b.version!==1||!b.project||typeof b.project.id!=='string'||!b.project.id||typeof b.project.title!=='string'||!b.data||typeof b.data!=='object'||Array.isArray(b.data))throw Error('지원하지 않는 백업 형식 또는 버전입니다.');
+ if(b.format!=='plotweaver'||(b.version!==1&&b.version!==2)||!b.project||typeof b.project.id!=='string'||!b.project.id||typeof b.project.title!=='string'||!b.data||typeof b.data!=='object'||Array.isArray(b.data))throw Error('지원하지 않는 백업 형식 또는 버전입니다.');
  const ids=new Set<string>();
  let count=0;
  for(const name of collections){
-  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles','recoveryRecords'].includes(name)?[]:undefined);
+  const rows=b.data[name]||(['sceneDocs','sceneLinks','plotEdges','plotLayouts','projectThemes','themeRelations','handouts','exportProfiles','recoveryRecords',...scenarioCollections].includes(name)?[]:undefined);
   if(!Array.isArray(rows))throw Error(name+' 자료 목록이 없습니다.');
   count+=rows.length;
   if(count>200000)throw Error('백업의 자료 수가 허용 범위를 초과합니다.');
@@ -159,6 +188,12 @@ export function validateBackup(text:string):Backup{
    if(!row||typeof row!=='object'||Array.isArray(row))throw Error(name+' 자료 형식이 올바르지 않습니다.');
    const obj=row as Record<string,unknown>;
    if(typeof obj.id!=='string'||!obj.id||ids.has(obj.id)||obj.projectId!==b.project.id)throw Error(name+' 자료 ID 또는 소속 프로젝트가 잘못되었습니다.');
+   if(name==='scenarioVariables'){
+    const variable=obj as unknown as ScenarioVariable;
+    if(typeof variable.name!=='string'||!['boolean','number','string','enum'].includes(variable.type)||
+      !Array.isArray(variable.options)||variable.options.some(value=>typeof value!=='string')||!validValue(variable,variable.initial))throw Error('시나리오 변수 데이터가 손상되었습니다.');
+   }
+   if(name==='simulationLogs'&&(!Array.isArray(obj.steps)||obj.steps.some(step=>typeof step!=='string')||typeof obj.title!=='string'||typeof obj.outcome!=='string'))throw Error('테스트 기록이 손상되었습니다.');
    ids.add(obj.id);
   }
  }
@@ -193,7 +228,43 @@ export async function restoreBackup(text:string,duplicate=false,sourceAssets:Ass
  for(const name of collections){
   restored[name]=(b.data[name]||[]).map(row=>{
    const entry:Record<string,unknown>={...(row as Record<string,unknown>),id:mapId((row as {id:string}).id),projectId:id};
-   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId','projectThemeId','assetId'])if(entry[key])entry[key]=mapId(entry[key]);
+   // Keep broken optional references visible in project-scoped lookups after import.
+   const remapOptional = (value: unknown) => typeof value === 'string' && value ? map.get(value) || value : '';
+   for(const key of ['questionId','eventId','sourceId','targetId','sceneId','resourceId','fromSceneId','toSceneId','projectThemeId','assetId']){
+    if(entry[key])entry[key]=name==='handouts'&&key==='sceneId'?remapOptional(entry[key]):mapId(entry[key]);
+   }
+   if(name==='handouts'&&entry.clueId!==undefined)entry.clueId=remapOptional(entry.clueId);
+   if(name==='plotEdges' || name==='clueRoutes'){
+    if(entry.guard!==undefined)entry.guard=remapCondition(entry.guard,remapOptional);
+   }
+   if(name==='npcRelationships'){
+    entry.fromNpcId=remapOptional(entry.fromNpcId);
+    entry.toNpcId=remapOptional(entry.toNpcId);
+   }
+   if(name==='lore'&&entry.wiki!==undefined){
+    const wiki=entry.wiki as WikiDetails;
+    if(!wiki||typeof wiki.category!=='string'||typeof wiki.tags!=='string'||typeof wiki.status!=='string'||
+      !Array.isArray(wiki.links)||wiki.links.some(link=>!link||typeof link.label!=='string'||typeof link.targetId!=='string'))throw Error('위키 참조가 손상되었습니다.');
+    entry.wiki={...wiki,links:wiki.links.map(link=>({...link,targetId:remapOptional(link.targetId)}))};
+   }
+   if(name==='lore'&&entry.npc!==undefined){
+    const npc=entry.npc as NpcProfile;
+    if(!npc||!Array.isArray(npc.knownClueIds)||!npc.stats||typeof npc.stats!=='object')throw Error('NPC 자료가 손상되었습니다.');
+    entry.npc={...npc,knownClueIds:npc.knownClueIds.map(remapOptional)};
+   }
+   if(name==='events'&&entry.timing!==undefined){
+    const timing=entry.timing as EventTiming;
+    if(!timing||typeof timing.absolute!=='string'||typeof timing.afterId!=='string'||
+      ![timing.delayMinutes,timing.durationMinutes].every(value=>Number.isSafeInteger(value)&&value>=0))throw Error('사건 시점이 손상되었습니다.');
+    entry.timing={...timing,afterId:remapOptional(timing.afterId)};
+   }
+   if(name==='scenes'&&entry.flow!==undefined)entry.flow=remapFlow(entry.flow,remapOptional);
+   if(name==='clueRoutes')entry.clueId=remapOptional(entry.clueId);
+   if(name==='foreshadows'){
+    for(const key of ['introductionId','payoffId','clueId','handoutId','npcId'])entry[key]=remapOptional(entry[key]);
+    if(!Array.isArray(entry.hintIds))throw Error('복선의 암시 장면 목록이 손상되었습니다.');
+    entry.hintIds=entry.hintIds.map(remapOptional);
+   }
    if(entry.nextIds!==undefined){
     if(!Array.isArray(entry.nextIds))throw Error('장면 연결 목록이 손상되었습니다.');
     entry.nextIds=entry.nextIds.map(mapId);
@@ -233,7 +304,7 @@ export async function restoreBackup(text:string,duplicate=false,sourceAssets:Ass
    }
   }
  }
- const project:Project={...b.project,id,title:b.project.title+(duplicate?' (복제본)':' (복원)'),createdAt:now(),updatedAt:now()};
+ const project:Project={...b.project,id,startSceneId:b.project.startSceneId?mapId(b.project.startSceneId):undefined,title:b.project.title+(duplicate?' (복제본)':' (복원)'),createdAt:now(),updatedAt:now()};
  await db.transaction('rw',db.tables,async()=>{
   await db.projects.add(project);
   for(const name of collections)if(restored[name].length)await db.table(name).bulkAdd(restored[name]);
@@ -243,8 +314,7 @@ export async function restoreBackup(text:string,duplicate=false,sourceAssets:Ass
  return project;
 }
 export async function duplicateProject(id:string){
- const backup=await makeBackup(id);
- const assets=await db.assets.where('projectId').equals(id).toArray();
+ const {backup,assets}=await makeBackupWithAssets(id);
  return restoreBackup(JSON.stringify(backup),true,assets);
 }
 
@@ -264,11 +334,14 @@ export async function deleteProject(id:string){
  });
 }
 export async function restoreDeletedProject(id:string):Promise<Project>{
- const item=await db.trash.get(id);
- if(!item)throw Error('휴지통에서 프로젝트를 찾을 수 없습니다.');
- const project=await restoreBackup(JSON.stringify(item.backup),false,item.assets||[]);
- await db.trash.delete(id);
- return project;
+ return db.transaction('rw',db.tables,async()=>{
+  const item=await db.trash.get(id);
+  if(!item)throw Error('휴지통에서 프로젝트를 찾을 수 없습니다.');
+  const project=await restoreBackup(JSON.stringify(item.backup),false,item.assets||[]);
+  await db.projectSnapshots.where('projectId').equals(id).modify({projectId:project.id});
+  await db.trash.delete(id);
+  return project;
+ });
 }
 export function recommend(p:Project){
  if(p.nextTask.trim())return p.nextTask;

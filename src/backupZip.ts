@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import {db,downloadBlob,makeBackup,restoreBackup,uid,type Asset,type Backup} from './data';
+import {db,downloadBlob,makeBackupWithAssets,restoreBackup,validateBackup,type Asset,type Backup} from './data';
 import {flushProjectEdits} from './saveBarrier';
 import {makeResearchBackup,importResearchBackup,validateResearchBackup,type ResearchBackup} from './researchData';
 
@@ -10,7 +10,8 @@ const MAX_ENTRIES=1200;
 const TYPES=new Set(['image/png','image/jpeg','image/webp','application/pdf']);
 
 type AssetItem={id:string;projectId:string;name:string;mime:string;size:number;path:string;sha256:string};
-type ProjectPackage={format:'plotweaver-package';version:1;scope:'project'|'workspace';createdAt:string;projects:{path:string;projectId:string}[];researchPath?:string;assets:AssetItem[]};
+type SnapshotItem={projectId:string;title:string;description:string;createdAt:number;path:string;size:number;sha256:string};
+type ProjectPackage={format:'plotweaver-package';version:1;scope:'project'|'workspace';createdAt:string;projects:{path:string;projectId:string}[];researchPath?:string;assets:AssetItem[];snapshots?:SnapshotItem[]};
 function hex(bytes:Uint8Array){return [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');}
 async function sha256(bytes:Uint8Array){
  const hash=await crypto.subtle.digest('SHA-256',bytes as BufferSource);
@@ -24,16 +25,27 @@ async function addAsset(zip:JSZip,asset:Asset):Promise<AssetItem>{
  zip.file(path,bytes,{binary:true,compression:'DEFLATE'});
  return {id:asset.id,projectId:asset.projectId,name:asset.name,mime:asset.mime,size:asset.size,path,sha256:await sha256(bytes)};
 }
-export async function buildProjectPackage(projectId:string):Promise<Blob>{
- await flushProjectEdits(projectId);
- const backup=await makeBackup(projectId);
- const assets=await db.assets.where('projectId').equals(projectId).toArray();
+async function addSnapshots(zip:JSZip,manifest:ProjectPackage,projectId:string,index:number,budget:{total:number}) {
+ const snapshots=await db.projectSnapshots.where('projectId').equals(projectId).sortBy('createdAt');
+ if(snapshots.length>12)throw Error('스냅샷 수가 허용 범위를 초과합니다.');
+ for(const [number,snapshot] of snapshots.entries()){
+  const bytes=new Uint8Array(await snapshot.blob.arrayBuffer());
+  budget.total+=bytes.byteLength;
+  if(budget.total>MAX_TOTAL)throw Error('백업 데이터와 스냅샷이 250MB를 초과합니다. 스냅샷을 개별 ZIP으로 내려받은 뒤 공간을 확보해 주세요.');
+  const path='snapshots/'+index+'/'+number+'.zip';
+  zip.file(path,bytes,{binary:true,compression:'STORE'});
+  (manifest.snapshots ||= []).push({projectId,title:snapshot.title,description:snapshot.description,createdAt:snapshot.createdAt,path,size:bytes.byteLength,sha256:await sha256(bytes)});
+ }
+}
+export async function buildProjectPackage(projectId:string,includeSnapshots=true):Promise<Blob>{
+ const {backup,assets}=await makeBackupWithAssets(projectId);
  if(assets.reduce((sum,item)=>sum+item.size,0)>MAX_TOTAL)throw Error('첨부파일 총 크기가 250MB를 초과합니다.');
  const zip=new JSZip();
  zip.file('projects/0.json',JSON.stringify(backup));
  const manifest:ProjectPackage={format:'plotweaver-package',version:1,scope:'project',createdAt:new Date().toISOString(),
   projects:[{path:'projects/0.json',projectId}],assets:[]};
  for(const asset of assets)manifest.assets.push(await addAsset(zip,asset));
+ if(includeSnapshots)await addSnapshots(zip,manifest,projectId,0,{total:assets.reduce((sum,item)=>sum+item.size,0)});
  zip.file('manifest.json',JSON.stringify(manifest,null,2));
  return zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:4}});
 }
@@ -49,18 +61,18 @@ export async function buildWorkspacePackage():Promise<Blob>{
  await flushProjectEdits('__global__');
  const zip=new JSZip();
  const manifest:ProjectPackage={format:'plotweaver-package',version:1,scope:'workspace',createdAt:new Date().toISOString(),projects:[],researchPath:'research.json',assets:[]};
- let total=0;
+ const budget={total:0};
  for(let i=0;i<projects.length;i++){
-  const project=projects[i],backup=await makeBackup(project.id);
+  const project=projects[i],{backup,assets}=await makeBackupWithAssets(project.id);
   const path='projects/'+i+'.json';
   zip.file(path,JSON.stringify(backup));
   manifest.projects.push({path,projectId:project.id});
-  const assets=await db.assets.where('projectId').equals(project.id).toArray();
   for(const asset of assets){
-   total+=asset.size;
-   if(total>MAX_TOTAL)throw Error('전체 첨부파일 크기가 250MB를 초과합니다. 개별 프로젝트 백업을 이용해 주세요.');
+   budget.total+=asset.size;
+   if(budget.total>MAX_TOTAL)throw Error('전체 첨부파일 크기가 250MB를 초과합니다. 개별 프로젝트 백업을 이용해 주세요.');
    manifest.assets.push(await addAsset(zip,asset));
   }
+  await addSnapshots(zip,manifest,project.id,i,budget);
  }
  const research=await makeResearchBackup();
  zip.file('research.json',JSON.stringify(research));
@@ -71,7 +83,7 @@ export async function downloadWorkspacePackage(){
  const blob=await buildWorkspacePackage();
  downloadBlob(blob,'PLOTWEAVER-전체-작업공간.plotweaver.zip');
 }
-async function parsePackage(file:Blob){
+async function parsePackage(file:Blob,allowSnapshots=true):Promise<{projects:{backup:Backup;assets:Asset[];snapshots:{title:string;description:string;createdAt:number;blob:Blob}[]}[];research:ResearchBackup|null}>{
  if(file.size>MAX_ARCHIVE)throw Error('백업 파일이 300MB를 초과합니다.');
  // Check the ZIP central directory sizes before decompressing entries; file assets are SHA-256 verified below.
  const zip=await JSZip.loadAsync(await file.arrayBuffer(),{checkCRC32:false});
@@ -102,17 +114,16 @@ async function parsePackage(file:Blob){
  if(m.projects.length>300||m.assets.length>1000)throw Error('백업에 포함된 항목이 너무 많습니다.');
  const seen=new Set<string>();
  const expected=new Set(['manifest.json']);
- const projects:{backup:Backup;assets:Asset[]}[]=[];
+ const projects:{backup:Backup;assets:Asset[];snapshots:{title:string;description:string;createdAt:number;blob:Blob}[]}[]=[];
  for(const ref of m.projects){
   if(!ref||typeof ref.path!=='string'||!/^projects\/[0-9]+\.json$/.test(ref.path)||typeof ref.projectId!=='string'||!zip.file(ref.path)||expected.has(ref.path))throw Error('프로젝트 백업 경로가 잘못되었습니다.');
   expected.add(ref.path);
   const text=await zip.file(ref.path)!.async('string');
   if(text.length>60000000)throw Error('프로젝트 데이터가 너무 큽니다.');
-  const {validateBackup}=await import('./data');
   const backup=validateBackup(text);
   if(backup.project.id!==ref.projectId||seen.has(ref.projectId))throw Error('프로젝트 식별자가 중복되었거나 일치하지 않습니다.');
   seen.add(ref.projectId);
-  projects.push({backup,assets:[]});
+  projects.push({backup,assets:[],snapshots:[]});
  }
  let total=0;
  const assetIds=new Set<string>();
@@ -125,6 +136,26 @@ async function parsePackage(file:Blob){
   if(bytes.byteLength!==meta.size||await sha256(bytes)!==meta.sha256)throw Error(meta.name+' 첨부파일이 손상되었습니다.');
   const project=projects.find(p=>p.backup.project.id===meta.projectId)!;
   project.assets.push({id:meta.id,projectId:meta.projectId,name:meta.name,mime:meta.mime,size:meta.size,blob:new Blob([bytes as BlobPart],{type:meta.mime}),createdAt:Date.now(),updatedAt:Date.now()});
+ }
+ if(m.snapshots!==undefined&&!Array.isArray(m.snapshots))throw Error('스냅샷 목록이 손상되었습니다.');
+ if(!allowSnapshots&&m.snapshots?.length)throw Error('스냅샷 안에 중첩된 스냅샷은 지원하지 않습니다.');
+ const perProject=new Map<string,number>();
+ for(const snapshot of m.snapshots||[]){
+  if(!snapshot||typeof snapshot.projectId!=='string'||typeof snapshot.title!=='string'||typeof snapshot.description!=='string'||
+   !Number.isSafeInteger(snapshot.createdAt)||!Number.isSafeInteger(snapshot.size)||snapshot.size<0||snapshot.size>MAX_TOTAL||
+   typeof snapshot.sha256!=='string'||typeof snapshot.path!=='string'||!/^snapshots\/[0-9]+\/[0-9]+\.zip$/.test(snapshot.path)||
+   !seen.has(snapshot.projectId)||!zip.file(snapshot.path)||expected.has(snapshot.path))throw Error('스냅샷 정보가 손상되었습니다.');
+  const count=(perProject.get(snapshot.projectId)||0)+1;
+  if(count>12)throw Error('프로젝트의 스냅샷 수가 허용 범위를 초과합니다.');
+  perProject.set(snapshot.projectId,count);
+  expected.add(snapshot.path);
+  total+=snapshot.size;if(total>MAX_TOTAL)throw Error('백업 파일과 스냅샷 크기가 250MB를 초과합니다.');
+  const bytes=await zip.file(snapshot.path)!.async('uint8array');
+  if(bytes.byteLength!==snapshot.size||await sha256(bytes)!==snapshot.sha256)throw Error('스냅샷 파일이 손상되었습니다.');
+  const blob=new Blob([bytes as BlobPart],{type:'application/zip'});
+  const nested=await parsePackage(blob,false);
+  if(nested.projects.length!==1||nested.research)throw Error('스냅샷의 백업 형식이 올바르지 않습니다.');
+  projects.find(p=>p.backup.project.id===snapshot.projectId)!.snapshots.push({title:snapshot.title,description:snapshot.description,createdAt:snapshot.createdAt,blob});
  }
  for(const p of projects){
   const list=p.backup.assetManifest||[];
@@ -159,6 +190,9 @@ export async function restorePackage(file:Blob){
       revisionId:researchMap[pin.revisionId]||pin.revisionId
      });
     }
+   }
+   for(const snapshot of item.snapshots){
+    await db.projectSnapshots.add({...snapshot,id:crypto.randomUUID(),projectId:p.id,updatedAt:snapshot.createdAt});
    }
    result.push({id:p.id,title:p.title});
   }

@@ -15,8 +15,8 @@ export default function ProjectThemes({projectId,onOpenGlobalThemes}:Props){
  const refs=useLiveQuery(()=>db.projectThemes.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const revisions=useLiveQuery(()=>db.themeRevisions.toArray(),[],[]);
  const scenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(x=>!x.deletedAt).toArray(),[projectId],[]);
- const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).toArray(),[projectId],[]);
- const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray(),[projectId],[]);
+ const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray(),[projectId],[]);
  const edges=useLiveQuery(()=>db.plotEdges.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const relations=useLiveQuery(()=>db.themeRelations.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const [selectedId,setSelectedId]=useState('');

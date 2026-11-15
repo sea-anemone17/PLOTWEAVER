@@ -1,3 +1,5 @@
+import { useUnsavedChanges } from './unsavedChanges';
+import { ConditionField } from './ScenarioFields';
 import { useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowRight, FilePenLine, GitBranch, RotateCcw, Trash2, Plus, Save } from 'lucide-react';
@@ -23,6 +25,7 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
  const [dragPositions,setDragPositions]=useState<Record<string,NodePosition>>({});
  const [selectedSceneId,setSelectedSceneId]=useState('');
  const [selectedEdgeId,setSelectedEdgeId]=useState('');
+ const guard=useUnsavedChanges(projectId);
  const [draft,setDraft]=useState<EdgeDraft>({...EMPTY_EDGE});
  const [error,setError]=useState('');
  const [busy,setBusy]=useState(false);
@@ -35,17 +38,22 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
  },[auto,layouts,dragPositions]);
  const size=graphBounds(positions);
  const activeScene=scenes.find(scene=>scene.id===selectedSceneId);
+ const variables=useLiveQuery(()=>db.scenarioVariables.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray(),[projectId],[]);
+ const [locked,setLocked]=useState(false);
+ const [zoom,setZoom]=useState(1);
  const editedEdge=edges.find(edge=>edge.id===selectedEdgeId);
  const nameOf=(id:string)=>scenes.find(scene=>scene.id===id)?.title||'연결 대상 없음';
  const edgeType=(value:PlotEdgeType)=>EDGE_TYPES.find(t=>t.value===value)?.label||value;
 
  function selectEdge(edge:PlotEdge){
+  guard.markClean();
   setSelectedEdgeId(edge.id);
   setSelectedSceneId(edge.fromSceneId);
-  setDraft({fromSceneId:edge.fromSceneId,toSceneId:edge.toSceneId,type:edge.type,label:edge.label,condition:edge.condition,note:edge.note});
+  setDraft({fromSceneId:edge.fromSceneId,toSceneId:edge.toSceneId,type:edge.type,label:edge.label,condition:edge.condition,note:edge.note,guard:edge.guard});
   setError('');
  }
  function newEdge(fromSceneId=selectedSceneId||scenes[0]?.id||''){
+  guard.markClean();
   setSelectedEdgeId('');
   setDraft({...EMPTY_EDGE,fromSceneId});
   setError('');
@@ -58,6 +66,7 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
     const edge=await createPlotEdge(projectId,draft);
     setSelectedEdgeId(edge.id);
    }
+   guard.markClean();
   }catch(cause){setError(cause instanceof Error?cause.message:String(cause));}
   finally{setBusy(false);}
  }
@@ -89,7 +98,7 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
   }catch(cause){setError(String(cause));}
  }
  function startDrag(event:React.PointerEvent<HTMLButtonElement>,id:string){
-  if(event.button!==0||!positions[id])return;
+  if(locked||event.button!==0||!positions[id])return;
   event.currentTarget.setPointerCapture(event.pointerId);
   drag.current={id,clientX:event.clientX,clientY:event.clientY,original:positions[id],current:positions[id],moved:false};
   setSelectedSceneId(id);
@@ -97,7 +106,7 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
  function moveDrag(event:React.PointerEvent<HTMLButtonElement>){
   const state=drag.current;
   if(!state)return;
-  const dx=event.clientX-state.clientX,dy=event.clientY-state.clientY;
+  const dx=(event.clientX-state.clientX)/zoom,dy=(event.clientY-state.clientY)/zoom;
   if(Math.abs(dx)+Math.abs(dy)>5)state.moved=true;
   if(!state.moved)return;
   state.current={x:Math.max(8,Math.round(state.original.x+dx)),y:Math.max(8,Math.round(state.original.y+dy))};
@@ -119,16 +128,20 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
   <section className="plot-graph-left" aria-label="전체 플롯 관계도">
    <div className="graph-tools">
     <span>장면 {scenes.length}개 · 연결 {edges.length}개</span>
+    <button type="button" aria-pressed={locked} onClick={()=>setLocked(!locked)}>{locked?'배치 잠금 해제':'배치 잠금'}</button>
+    <label>확대율 <select value={zoom} onChange={e=>setZoom(Number(e.target.value))}>
+     {[0.5,0.75,1,1.25,1.5].map(n=><option value={n} key={n}>{n*100}%</option>)}
+    </select></label>
     <button type="button" onClick={()=>void resetAll()}><RotateCcw size={14}/> 전체 자동 정렬</button>
-    <button type="button" onClick={()=>newEdge()}><Plus size={14}/> 연결 추가</button>
+    <button data-unsaved-navigation type="button" onClick={()=>newEdge()}><Plus size={14}/> 연결 추가</button>
    </div>
    <div className="plot-graph-scroll">
-    <div className="plot-graph-stage" style={{width:size.width,height:size.height}}>
+    <div className="plot-graph-stage" style={{width:size.width*zoom,height:size.height*zoom}}><div style={{width:size.width,height:size.height,transformOrigin:'top left',transform:'scale('+zoom+')'}}>
      <svg className="plot-connections" width={size.width} height={size.height} aria-hidden="true">
       <defs><marker id="pw-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse"><path d="M0 0 L7 3.5 L0 7 z" fill="#7987a5"/></marker></defs>
       {shownEdges.map(edge=>{
        const a=positions[edge.fromSceneId],b=positions[edge.toSceneId];
-       return <path key={edge.id} className="plot-edge-path" d={edgePath(a,b)} markerEnd="url(#pw-arrow)" strokeDasharray={edge.type==='optional'||edge.type==='return'?'6 5':undefined}/>;
+       return <path key={edge.id} data-unsaved-navigation onClick={()=>selectEdge(edge)} className="plot-edge-path scenario-edge" d={edgePath(a,b)} markerEnd="url(#pw-arrow)" strokeDasharray={edge.type==='optional'||edge.type==='return'?'6 5':undefined}/>;
       })}
       {edges.filter(edge=>positions[edge.fromSceneId]&&!edge.toSceneId).map(edge=>{
        const a=positions[edge.fromSceneId];
@@ -137,14 +150,14 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
      </svg>
      {scenes.map(scene=>{
       const p=positions[scene.id];if(!p)return null;
-      return <button key={scene.id} type="button" className={'graph-scene-node'+(selectedSceneId===scene.id?' selected':'')} style={{left:p.x,top:p.y,width:NODE_WIDTH,height:NODE_HEIGHT}}
-       onPointerDown={event=>startDrag(event,scene.id)} onPointerMove={moveDrag} onPointerUp={()=>void endDrag()} onPointerCancel={()=>void endDrag()}
+      return <button key={scene.id} type="button" className={'graph-scene-node'+(locked?' locked':'')+(selectedSceneId===scene.id?' selected':'')} style={{left:p.x,top:p.y,width:NODE_WIDTH,height:NODE_HEIGHT}}
+       onPointerDown={event=>startDrag(event,scene.id)} onPointerMove={moveDrag} onPointerUp={()=>void endDrag()} onPointerCancel={()=>{const state=drag.current;drag.current=null;if(state)setDragPositions(prev=>{const next={...prev};delete next[state.id];return next;});}}
        onClick={()=>setSelectedSceneId(scene.id)} onDoubleClick={()=>onEditScene(scene)}
        title={scene.title+' · 드래그하여 배치 / 두 번 눌러 정보 편집'}>
-       <small>{scene.stage||'장면'}</small><strong>{scene.title||'이름 없는 장면'}</strong>
+       <small>{scene.stage||'장면'} · {scene.writingStatus||'구상'}</small><strong>{scene.title||'이름 없는 장면'}</strong>
       </button>;
      })}
-    </div>
+    </div></div>
    </div>
    <p className="muted small">노드를 이동하면 위치만 저장됩니다. 장면 순서와 연결선은 변경되지 않습니다. 장면은 두 번 클릭하여 편집할 수 있습니다.</p>
   </section>
@@ -160,7 +173,7 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
    </div>}
    <div className="eyebrow">진행 관계 관리</div>
    <h3>{selectedEdgeId?'선택한 연결 편집':'새 연결 추가'}</h3>
-   <div className="graph-form">
+   <div className="graph-form" onChangeCapture={guard.markDirty} onClickCapture={guard.onStructureClick}>
     <label>출발 장면
      <select value={draft.fromSceneId} onChange={e=>setDraft({...draft,fromSceneId:e.target.value})}>
       <option value="">출발 장면 선택</option>
@@ -184,18 +197,20 @@ export default function PlotGraph({projectId,scenes,edges,onEditScene,onWriteSce
     <label>진행 조건 (선택)
      <textarea rows={2} value={draft.condition} onChange={e=>setDraft({...draft,condition:e.target.value})} placeholder="예: 기록을 발견했을 때"/>
     </label>
+    <ConditionField title="테스트 플레이에서 검사할 조건" variables={variables} value={draft.guard} change={guard=>setDraft({...draft,guard})}/>
     <label>GM 메모 (선택)
      <textarea rows={2} value={draft.note} onChange={e=>setDraft({...draft,note:e.target.value})}/>
     </label>
+    {guard.dirty&&<p role="status">저장되지 않은 변경 사항이 있습니다.</p>}
     {error&&<p className="graph-error" role="alert">{error}</p>}
     <div className="graph-panel-actions">
      <Button disabled={busy||!draft.fromSceneId} onClick={()=>void save()}><Save size={14}/> {selectedEdgeId?'연결 수정':'연결 생성'}</Button>
      {editedEdge&&<Button variant="danger" disabled={busy} onClick={()=>void remove()}><Trash2 size={14}/> 삭제</Button>}
-     {selectedEdgeId&&<Button variant="soft" onClick={()=>newEdge()}><Plus size={14}/> 새 연결</Button>}
+     {selectedEdgeId&&<Button data-unsaved-navigation variant="soft" onClick={()=>newEdge()}><Plus size={14}/> 새 연결</Button>}
     </div>
    </div>
    <div className="graph-edge-list"><h4>연결 목록</h4>
-    {edges.length?edges.map(edge=><button type="button" key={edge.id} className={'graph-edge-item'+(selectedEdgeId===edge.id?' selected':'')} onClick={()=>selectEdge(edge)}>
+    {edges.length?edges.map(edge=><button data-unsaved-navigation type="button" key={edge.id} className={'graph-edge-item'+(selectedEdgeId===edge.id?' selected':'')} onClick={()=>selectEdge(edge)}>
      <span>{nameOf(edge.fromSceneId)} <ArrowRight size={12}/> {edge.toSceneId?nameOf(edge.toSceneId):'미정'}</span>
      <small>{edgeType(edge.type)}{edge.label?' · '+edge.label:''}</small>
     </button>):<p className="muted small">아직 연결된 장면이 없습니다. 원하는 경로부터 추가해 보세요.</p>}

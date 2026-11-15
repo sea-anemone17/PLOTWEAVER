@@ -5,8 +5,8 @@ export type Field={
  key:string;label:string;kind?:'text'|'textarea'|'select'|'checkbox'|'multi';
  options?:{value:string;label:string}[];placeholder?:string;required?:boolean;
 };
-export function Button({children,onClick,variant='primary',disabled=false,type='button'}:{children:React.ReactNode;onClick?:()=>void;variant?:'primary'|'soft'|'ghost'|'danger';disabled?:boolean;type?:'button'|'submit'}){
- return <button type={type} disabled={disabled} className={'button '+variant} onClick={onClick}>{children}</button>;
+export function Button({children,onClick,variant='primary',disabled=false,type='button',...rest}:{children:React.ReactNode;onClick?:()=>void;variant?:'primary'|'soft'|'ghost'|'danger';disabled?:boolean;type?:'button'|'submit';'data-unsaved-navigation'?:boolean}){
+ return <button type={type} disabled={disabled} className={'button '+variant} onClick={onClick} {...rest}>{children}</button>;
 }
 export function Empty({title,description,action}:{title:string;description:string;action?:()=>void}){
  return <div className="empty"><span className="empty-mark">✧</span><h3>{title}</h3><p>{description}</p>{action&&<Button onClick={action}><Plus size={16}/> 첫 항목 만들기</Button>}</div>;

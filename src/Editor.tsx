@@ -1,3 +1,4 @@
+import { manuscriptTemplates } from './writingTemplates';
 import { useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent, type JSONContent, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -136,7 +137,7 @@ export async function buildDocxBlob(projectId:string,title:string,settings:boole
   }
  }
  if(profile.includePrivate&&profile.includeGMResources){
-  const items=await db.lore.where('projectId').equals(projectId).toArray();
+  const items=await db.lore.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray();
   if(items.length){
    children.push(new Paragraph({text:'GM 전용 자료',heading:HeadingLevel.HEADING_1,pageBreakBefore:true}));
    for(const item of items){
@@ -165,8 +166,8 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
  const record=useLiveQuery(async()=>sceneId?(await db.sceneDocs.where('sceneId').equals(sceneId).first())??null:(await db.manuscripts.get(projectId))??null,[projectId,sceneId]);
  const scene=useLiveQuery(()=>sceneId?db.scenes.get(sceneId):undefined,[sceneId]);
  const projectScenes=useLiveQuery(()=>db.scenes.where('projectId').equals(projectId).filter(scene=>!scene.deletedAt).toArray(),[projectId],[]);
- const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).toArray(),[projectId],[]);
- const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).toArray(),[projectId],[]);
+ const lore=useLiveQuery(()=>db.lore.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray(),[projectId],[]);
+ const clues=useLiveQuery(()=>db.clues.where('projectId').equals(projectId).filter(item=>!item.deletedAt).toArray(),[projectId],[]);
  const links=useLiveQuery(()=>sceneId?db.sceneLinks.where('sceneId').equals(sceneId).toArray():[],[sceneId],[]);
  const plotEdges=useLiveQuery(()=>db.plotEdges.where('projectId').equals(projectId).toArray(),[projectId],[]);
  const [panel,setPanel]=useState<PanelTab>(sceneId?'overview':'outline');
@@ -320,6 +321,13 @@ export default function ManuscriptEditor({projectId,sceneId,onSelectScene,onOpen
     }}>
      <option value="">+ TRPG 블록</option>
      {Object.entries(TRPG_BLOCK_TYPES).map(([kind,label])=><option key={kind} value={kind}>{label}</option>)}
+    </select>
+    <select className="tool-select" aria-label="원고 템플릿 삽입" value="" onChange={e=>{
+     const template=manuscriptTemplates[e.target.value];
+     if(template)editor.chain().focus('end').insertContent(template()).run();
+    }}>
+     <option value="">+ 원고 템플릿</option>
+     {Object.keys(manuscriptTemplates).map(name=><option key={name}>{name}</option>)}
     </select>
     {action('링크',()=>{const url=prompt('연결할 URL을 입력하세요');if(url)editor.chain().focus().setLink({href:url}).run();})}
     {action('표 +',()=>editor.chain().focus().insertTable({rows:3,cols:3,withHeaderRow:true}).run())}
