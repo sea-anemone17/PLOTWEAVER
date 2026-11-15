@@ -25,7 +25,8 @@ export default function CloudAuth(){
   try{
    const {error}=await supabaseAuth.auth.signInWithOAuth({
     provider:'google',
-    options:{redirectTo:window.location.origin+import.meta.env.BASE_URL,skipBrowserRedirect:false}
+    // Development preview hosts are ephemeral. Never redirect a dev login to the Pages subpath.
+    options:{redirectTo:window.location.origin+(import.meta.env.DEV?'/':import.meta.env.BASE_URL),skipBrowserRedirect:false}
    });
    if(error)throw error;
   }catch(error){setMessage('Google 로그인 시작 실패: '+String(error));setBusy(false);}
