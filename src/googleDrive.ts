@@ -62,7 +62,7 @@ async function driveFetch(url:string,init:RequestInit={}){
 }
 function newName(){return 'workspace-'+new Date().toISOString().replace(/[:.]/g,'-')+'-'+crypto.randomUUID()+'.pwenc';}
 export async function listDriveBackups():Promise<DriveBackup[]>{
- const query=new URLSearchParams({q:"trashed = false and name contains 'workspace-' and mimeType = 'application/octet-stream'",fields:'nextPageToken,files(id,name,createdTime,size)',page_size:'100',orderBy:'createdTime desc'});
+ const query=new URLSearchParams({q:"trashed = false and name contains 'workspace-' and mimeType = 'application/octet-stream'",fields:'nextPageToken,files(id,name,createdTime,size)',pageSize:'100',orderBy:'createdTime desc'});
  const response=await driveFetch(API+'?'+query);
  const data=await response.json() as {files?:DriveBackup[]};
  return (data.files||[]).filter(isDriveBackup);
