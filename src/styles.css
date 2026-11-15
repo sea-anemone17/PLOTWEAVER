@@ -300,3 +300,12 @@
 .cloud-auth-panel>p{margin:.5rem 0}
 
 .docx-page-preview{max-height:680px;overflow:auto;background:#e9eaf0;border-radius:12px;margin-top:14px}.docx-page-preview:empty{display:none}.docx-page-preview .docx-wrapper{padding:16px;background:transparent}.docx-page-preview .docx-wrapper>section.docx{max-width:100%;box-shadow:0 4px 20px #25264024;margin:0 auto 14px}
+
+/* Explicit, encrypted, append-only cloud vault. No automatic manuscript sync. */
+.cloud-vault-panel{display:grid;gap:12px;margin-top:18px;padding-top:18px;border-top:1px solid #e9e9f0}
+.cloud-vault-panel .cloud-connect-title{display:flex;align-items:center;gap:10px}
+.cloud-vault-list{display:grid;gap:8px}
+.cloud-vault-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid #e9e9f0;border-radius:9px;background:#fafafe}
+.cloud-vault-row span{min-width:0;overflow-wrap:anywhere;font-size:12px;color:#61677a}
+.cloud-vault-row .button{flex-shrink:0}
+@media(max-width:600px){.cloud-vault-row{align-items:flex-start;flex-direction:column}}
